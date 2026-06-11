@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Cosmic Flow",
+  "description": "A collaborative high-performance generative particle simulation with orbital force fields, custom synths, interactive game modes and real-time AI oracle analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
