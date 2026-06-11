@@ -194,11 +194,20 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#02020a] text-gray-200 font-sans select-none cyber-panel">
+      {/* Signature Header Bar */}
+      <div className="absolute top-0 left-0 right-0 z-30 pointer-events-auto flex justify-center py-1">
+        <div className="bg-black/80 backdrop-blur-md border-b border-x border-white/10 rounded-b-xl px-4 py-1.5 flex items-center gap-2.5 shadow-[0_0_15px_rgba(139,92,246,0.2)]">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping-slow" />
+          <span className="text-[10px] font-mono tracking-[0.3em] font-extrabold text-indigo-300">MADE BY SHAURYA</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+        </div>
+      </div>
+
       {/* Three.js Interactive WebGL Scene */}
       <CosmicCanvas />
 
       {/* Dynamic Animated Glassmorphic HUD overlay */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none p-4 flex flex-col justify-between z-10">
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none p-4 pt-8 flex flex-col justify-between z-10">
         
         {/* TOP PANEL: Brand & Live Progress Tracking */}
         <div className="flex md:flex-row flex-col justify-between items-start gap-3 w-full pointer-events-auto">
