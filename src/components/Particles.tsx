@@ -8,6 +8,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGameStore } from '../store/useGameStore';
 import { computeCurl } from '../utils/curlNoise';
+import { CELESTIAL_BODIES, getCelestialPosition } from '../utils/celestialPhysics';
 
 const MAX_PARTICLES = 25000;
 const PARTICLE_LIFETIME = 3.5; // seconds
@@ -34,22 +35,38 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const particleShape = useGameStore((state) => state.particleShape || 'dust');
   const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
   const incrementParticleCount = useGameStore((state) => state.incrementParticleCount);
+  const celestialGravityEnabled = useGameStore((state) => state.celestialGravityEnabled);
+  const celestialGravityIntensity = useGameStore((state) => state.celestialGravityIntensity || 1.0);
+
+  // Precompute Vector3 positions of celestial elements once per frame to prevent GC lag
+  const planetPositions = useMemo(() => {
+    return CELESTIAL_BODIES.map(() => new THREE.Vector3());
+  }, []);
 
   // Procedural gradient particle circular texture for soft glass-morphic blend
   const particleTexture = useMemo(() => {
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    canvas.width = 128;
+    canvas.height = 128;
     const context = canvas.getContext('2d')!;
-    const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
-    gradient.addColorStop(0, 'rgba(255,255,255,1)');
-    gradient.addColorStop(0.15, 'rgba(255,255,255,0.9)');
-    gradient.addColorStop(0.35, 'rgba(200,220,255,0.4)');
-    gradient.addColorStop(0.6, 'rgba(100,150,255,0.1)');
-    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    
+    // Clear background
+    context.clearRect(0, 0, 128, 128);
+
+    // Multi-layered bright glowing center core with soft aura flares
+    const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, '#ffffff'); // pure hot white star center
+    gradient.addColorStop(0.08, '#fef08a'); // gold glare
+    gradient.addColorStop(0.22, 'rgba(147,197,253,0.9)'); // beautiful blue core glow
+    gradient.addColorStop(0.45, 'rgba(99,102,241,0.3)'); // radiant royal blue atmosphere
+    gradient.addColorStop(0.7, 'rgba(168,85,247,0.08)'); // neon purple trailing rim
+    gradient.addColorStop(1.0, 'rgba(0,0,0,0)');
+    
     context.fillStyle = gradient;
-    context.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(canvas);
+    context.fillRect(0, 0, 128, 128);
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
   }, []);
 
   // Preset Color Palettes
@@ -72,13 +89,24 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const particles = useMemo(() => {
     const arr: Particle[] = [];
     for (let i = 0; i < MAX_PARTICLES; i++) {
+      // Intentionally spread initialized active particles through full 3D viewport coordinates
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.random() * 16.0;
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      const z = (Math.random() - 0.5) * 8.0;
+
       const p: Particle = {
-        active: false,
-        position: new THREE.Vector3(),
-        velocity: new THREE.Vector3(),
+        active: true,
+        position: new THREE.Vector3(x, y, z),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 1.5,
+          (Math.random() - 0.5) * 1.5,
+          (Math.random() - 0.5) * 0.8
+        ),
         color: new THREE.Color(),
         baseColor: new THREE.Color(),
-        life: 0,
+        life: PARTICLE_LIFETIME * (0.8 + Math.random() * 0.4),
         size: 0.05 + Math.random() * 0.08,
       };
 
@@ -149,79 +177,6 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const fpsTimeElapsedRef = useRef(0);
   const lastMetricsUpdateRef = useRef(0);
 
-  // Interaction tracking refs
-  const prevMousePosRef = useRef<THREE.Vector3 | null>(null);
-  const playerLastPosRef = useRef<Record<string, THREE.Vector3>>({});
-  const isPointerDownRef = useRef(false);
-  const lastClickTimeRef = useRef(0);
-  const clickCountRef = useRef(1);
-  const movingFramesRef = useRef(0);
-
-  useEffect(() => {
-    const activeColor = myColor || getPresetColor(particlePreset, 0);
-
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
-        return;
-      }
-      isPointerDownRef.current = true;
-      const now = performance.now();
-      if (now - lastClickTimeRef.current < 350) {
-        clickCountRef.current++;
-      } else {
-        clickCountRef.current = 1;
-      }
-      lastClickTimeRef.current = now;
-
-      // Click or repeated clicks: spawn dynamic stardust burst
-      const burstSize = clickCountRef.current > 2 ? 160 : 80;
-      if (mousePosRef.current) {
-        for (let i = 0; i < burstSize; i++) {
-          spawnParticle(mousePosRef.current, activeColor);
-        }
-      }
-    };
-
-    const handlePointerUp = () => {
-      isPointerDownRef.current = false;
-    };
-
-    const handleDblClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
-        return;
-      }
-      // Double click super planetary burst wave
-      const burstSize = 250;
-      if (mousePosRef.current) {
-        for (let i = 0; i < burstSize; i++) {
-          spawnParticle(mousePosRef.current, activeColor);
-        }
-      }
-    };
-
-    const handlePointerMove = (e: PointerEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
-        return;
-      }
-      movingFramesRef.current = 8; // keep active for 8 frames of spawn
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('dblclick', handleDblClick);
-    window.addEventListener('pointermove', handlePointerMove);
-
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('dblclick', handleDblClick);
-      window.removeEventListener('pointermove', handlePointerMove);
-    };
-  }, [myColor, particlePreset, mousePosRef]);
-
   useFrame((state, delta) => {
     if (!meshRef.current) return;
 
@@ -269,48 +224,23 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
       lastMetricsUpdateRef.current = elapsed;
     }
 
-    const activeColor = myColor || getPresetColor(particlePreset, 0);
-
-    // Spawn client particles when moving / dragging / clicking
+    // Spawn client particles (Cursor trail)
     if (mousePosRef.current) {
-      let spawnCount = 0;
-      if (movingFramesRef.current > 0) {
-        spawnCount += Math.floor(18 * flowSpeed);
-        movingFramesRef.current--;
+      const activeColor = myColor || getPresetColor(particlePreset, 0);
+      const spawnCount = Math.floor(65 * flowSpeed); // Density scaled by flow speed
+      for (let i = 0; i < spawnCount; i++) {
+        spawnParticle(mousePosRef.current, activeColor);
       }
-      if (isPointerDownRef.current) {
-        spawnCount += Math.floor(15 * flowSpeed);
-      }
-
-      if (spawnCount > 0) {
-        for (let i = 0; i < spawnCount; i++) {
-          spawnParticle(mousePosRef.current, activeColor);
-        }
-        particlesToReportRef.current += spawnCount;
-      }
+      particlesToReportRef.current += spawnCount;
     }
 
-    // Spawn other players' particles (Only as they show movement)
+    // Spawn other players' particles
     Object.values(players).forEach(player => {
-      if (player.position) {
-        const playerColor = player.color || getPresetColor(particlePreset, 1);
+      if (player.position && player.color) {
         tempV1.set(player.position.x, player.position.y, player.position.z);
-        let playerMoved = true;
-        const lastPos = playerLastPosRef.current[player.id];
-        if (lastPos) {
-          if (tempV1.distanceTo(lastPos) < 0.001) {
-            playerMoved = false;
-          }
-          lastPos.copy(tempV1);
-        } else {
-          playerLastPosRef.current[player.id] = new THREE.Vector3().copy(tempV1);
-        }
-
-        if (playerMoved) {
-          const spawnCount = Math.floor(25 * flowSpeed);
-          for (let i = 0; i < spawnCount; i++) {
-            spawnParticle(tempV1, playerColor);
-          }
+        const spawnCount = Math.floor(40 * flowSpeed);
+        for (let i = 0; i < spawnCount; i++) {
+          spawnParticle(tempV1, player.color);
         }
       }
     });
@@ -323,6 +253,13 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
 
     const forces = Object.values(forceFields);
     const time = state.clock.getElapsedTime();
+
+    // Precompute positions of all celestial elements once at start of frame
+    if (celestialGravityEnabled) {
+      for (let j = 0; j < CELESTIAL_BODIES.length; j++) {
+        getCelestialPosition(CELESTIAL_BODIES[j], time, planetPositions[j]);
+      }
+    }
 
     for (let i = 0; i < MAX_PARTICLES; i++) {
       const p = particles[i];
@@ -337,10 +274,58 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
 
       // We remove particle death/fading. All particles are permanently active, enabling an infinite, persistent cosmic fluid flow!
 
+      // Sun incineration death check: Sun is at (0, 0, 0) with a physical radius of 1.8
+      const sunRadius = 1.8;
+      const burnOffset = 1.05; // incinerates slightly before hitting the core surface
+      const sunRadiusSq = (sunRadius * burnOffset) * (sunRadius * burnOffset);
+      const distToSunSq = p.position.x * p.position.x + p.position.y * p.position.y + p.position.z * p.position.z;
+      
+      if (distToSunSq < sunRadiusSq) {
+        p.active = false;
+        dummy.position.set(9999, 9999, 9999);
+        dummy.scale.set(0, 0, 0);
+        dummy.updateMatrix();
+        meshRef.current.setMatrixAt(i, dummy.matrix);
+        continue;
+      }
+
       // 1. Natural deep space Simplex/Curl Noise turbulence
       const noiseScale = 0.22;
       const curlVector = computeCurl(p.position.x * noiseScale, p.position.y * noiseScale, p.position.z * noiseScale);
       p.velocity.addScaledVector(curlVector, dt * 7.5);
+
+      // 1b. Real Solar System Celestial Gravity Attraction
+      if (celestialGravityEnabled) {
+        for (let j = 0; j < CELESTIAL_BODIES.length; j++) {
+          const body = CELESTIAL_BODIES[j];
+          const bodyPos = planetPositions[j];
+          
+          tempV1.subVectors(bodyPos, p.position);
+          const distSq = tempV1.lengthSq();
+          
+          const maxInfluence = body.influenceRadius;
+          if (distSq > 0.04 && distSq < maxInfluence * maxInfluence) {
+            const dist = Math.sqrt(distSq);
+            const normalDir = tempV1.normalize();
+            
+            // Newtonian-style inverse distance squared physical gravity pull
+            // scaled dynamically by the relative mass parameters of each planet
+            const gravityMagnitude = (body.mass * 11.5) / (distSq + 0.12);
+            
+            // Smooth edge-tapering so gravity transitions cleanly at the boundary of influence
+            const edgeTaper = 1.0 - dist / maxInfluence;
+            const pullStrength = gravityMagnitude * edgeTaper * celestialGravityIntensity;
+            
+            p.velocity.addScaledVector(normalDir, pullStrength * dt);
+            
+            // Atmospheric capture color blending: spiral stardust locks colors of the body!
+            if (dist < body.radius * 2.5) {
+              const blendRatio = 0.08 * (1.1 - dist / (body.radius * 2.5));
+              p.baseColor.lerp(new THREE.Color(body.color), blendRatio);
+            }
+          }
+        }
+      }
 
       // 2. Resolve Multi-Action Active Force Fields
       for (const force of forces) {
@@ -370,8 +355,9 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
               break;
             }
             case 'vortex': {
-              // Heavy centrifugal rotational orbit (right-angle vector)
-              const tangent = tempV2.crossVectors(normalDir, zVector).normalize();
+              // Heavy centrifugal rotational orbit (right-angle vector) in 3D
+              const axis = Math.abs(normalDir.dot(upVector)) < 0.9 ? upVector : zVector;
+              const tangent = tempV2.crossVectors(normalDir, axis).normalize();
               const vortexStrength = 120.0 / (distSq + 2.0);
               // Spirals in slightly as well for dramatic effect!
               p.velocity.addScaledVector(tangent, vortexStrength * dt * 2.2);
@@ -386,9 +372,10 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
               break;
             }
             case 'wind': {
-              // Horizontal horizontal streaming thrust
+              // Horizontal horizontal streaming thrust in 3D
               p.velocity.x += strength * dt * 0.8;
               p.velocity.y += Math.sin(p.position.x * 0.5 + time) * strength * dt * 0.15;
+              p.velocity.z += Math.cos(p.position.x * 0.5 + time) * strength * dt * 0.15;
               break;
             }
             case 'strobe': {
@@ -408,9 +395,10 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
               break;
             }
             case 'gravity_well': {
-              // Slows down particles to form orbiting accretion rings
+              // Slows down particles to form orbiting accretion rings in 3D
               p.velocity.lerp(tempV2.set(0,0,0), 0.12 * dt);
-              const tangent = tempV2.crossVectors(normalDir, zVector).normalize();
+              const axis = Math.abs(normalDir.dot(upVector)) < 0.9 ? upVector : zVector;
+              const tangent = tempV2.crossVectors(normalDir, axis).normalize();
               p.velocity.addScaledVector(tangent, strength * dt * 1.5);
               break;
             }
@@ -580,10 +568,10 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   // Render highly optimized instanced mesh with dynamic geometry based on selected particle shape
   return (
     <instancedMesh key={particleShape} ref={meshRef} args={[undefined, undefined, MAX_PARTICLES]}>
-      {(particleShape === 'glowing_star' || particleShape === 'star') && <octahedronGeometry args={[1, 0]} />}
-      {(particleShape === 'nebula_bloom' || particleShape === 'ring') && <torusGeometry args={[0.8, 0.22, 6, 12]} />}
-      {(particleShape === 'fractal_spore' || particleShape === 'crystal') && <tetrahedronGeometry args={[1, 0]} />}
-      {(particleShape === 'majestic_dust' || particleShape === 'dust') && <sphereGeometry args={[1, 6, 6]} />}
+      {(particleShape === 'glowing_star' || particleShape === 'star') && <octahedronGeometry args={[1, 3]} />}
+      {(particleShape === 'nebula_bloom' || particleShape === 'ring') && <torusGeometry args={[0.8, 0.18, 16, 32]} />}
+      {(particleShape === 'fractal_spore' || particleShape === 'crystal') && <tetrahedronGeometry args={[1, 3]} />}
+      {(particleShape === 'majestic_dust' || particleShape === 'dust') && <sphereGeometry args={[1, 24, 24]} />}
       <meshBasicMaterial 
         map={particleTexture}
         transparent 

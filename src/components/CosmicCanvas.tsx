@@ -5,13 +5,14 @@
 
 import React, { useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars } from '@react-three/drei';
+import { Stars, OrbitControls } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/useGameStore';
 import { Particles } from './Particles';
 import { ForceFields } from './ForceFields';
 import { OtherPlayers, LocalCursor } from './OtherPlayers';
+import { SolarSystem } from './SolarSystem';
 
 function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject<THREE.Vector3 | null> }) {
   const sendCursor = useGameStore((state) => state.sendCursor);
@@ -19,7 +20,8 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const { camera, gl } = useThree();
 
   useEffect(() => {
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const plane = new THREE.Plane();
+    const camDir = new THREE.Vector3();
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
@@ -28,6 +30,11 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
       mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
+      
+      // Update plane to face the camera and pass through origin (0, 0, 0)
+      camera.getWorldDirection(camDir);
+      plane.setFromNormalAndCoplanarPoint(camDir.negate(), new THREE.Vector3(0, 0, 0));
+      
       const target = new THREE.Vector3();
       raycaster.ray.intersectPlane(plane, target);
       mousePosRef.current = target;
@@ -161,7 +168,7 @@ export function CosmicCanvas() {
 
   return (
     <div className="w-full h-full absolute inset-0 bg-[#020208]">
-      <Canvas camera={{ position: [0, 0, 20], fov: 60 }}>
+      <Canvas camera={{ position: [3, 4, 18], fov: 60 }}>
         <color attach="background" args={['#02020a']} />
         
         <ambientLight intensity={0.25} />
@@ -170,12 +177,21 @@ export function CosmicCanvas() {
         
         <RotatingStars />
         
+        <SolarSystem />
         <Particles mousePosRef={mousePosRef} />
         <ForceFields />
         <OtherPlayers />
         <LocalCursor mousePosRef={mousePosRef} />
         
         <SceneInteraction mousePosRef={mousePosRef} />
+        
+        <OrbitControls 
+          makeDefault
+          enableDamping 
+          dampingFactor={0.06}
+          minDistance={6}
+          maxDistance={38}
+        />
         
         <EffectComposer>
           <Bloom 

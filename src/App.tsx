@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { CosmicCanvas } from './components/CosmicCanvas';
 import { useGameStore, OracleMessage } from './store/useGameStore';
 import { designBibleData } from './data/designBible';
+import { CELESTIAL_BODIES } from './utils/celestialPhysics';
 import { 
   Users, Sparkles, Gamepad2, Globe, Cpu, 
   Volume2, VolumeX, Send, Trophy, Zap, 
@@ -44,6 +45,16 @@ export default function App() {
   const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
   const setBloomIntensity = useGameStore((state) => state.setBloomIntensity);
   const setCustomColor = useGameStore((state) => state.setCustomColor);
+
+  // Celestial mechanics parameters from store
+  const celestialGravityEnabled = useGameStore((state) => state.celestialGravityEnabled);
+  const celestialGravityIntensity = useGameStore((state) => state.celestialGravityIntensity);
+  const showCelestialOrbits = useGameStore((state) => state.showCelestialOrbits);
+  const trackedPlanetId = useGameStore((state) => state.trackedPlanetId);
+  const toggleCelestialGravity = useGameStore((state) => state.toggleCelestialGravity);
+  const setCelestialGravityIntensity = useGameStore((state) => state.setCelestialGravityIntensity);
+  const toggleCelestialOrbits = useGameStore((state) => state.toggleCelestialOrbits);
+  const setTrackedPlanetId = useGameStore((state) => state.setTrackedPlanetId);
   const addForce = useGameStore((state) => state.addForce);
   const fps = useGameStore((state) => state.fps);
   const activeParticleCount = useGameStore((state) => state.activeParticleCount);
@@ -152,7 +163,7 @@ export default function App() {
         const randPos = {
           x: (Math.random() - 0.5) * 10,
           y: (Math.random() - 0.5) * 6,
-          z: 0
+          z: (Math.random() - 0.5) * 6
         };
         addForce(randPos, toolId);
         triggerVibrateFeedback(toolId);
@@ -299,7 +310,7 @@ export default function App() {
                             const randPos = {
                               x: (Math.random() - 0.5) * 10,
                               y: (Math.random() - 0.5) * 6,
-                              z: 0
+                              z: (Math.random() - 0.5) * 6
                             };
                             addForce(randPos, tool.id);
                             triggerVibrateFeedback(tool.id);
@@ -461,6 +472,149 @@ export default function App() {
                       className="w-full h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer accent-purple-500"
                       title="Adjusts bloom intensity and glow threshold for majestic dust and glowing stars"
                     />
+                  </div>
+
+                  {/* Solar System & Celestial Gravity Panel */}
+                  <div className="space-y-3.5 border-t border-white/5 pt-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                        <span className="text-[10px] uppercase font-mono tracking-wider text-indigo-300 font-semibold">Celestial Mechanics</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={toggleCelestialOrbits}
+                          title="Toggle Planet Orbits"
+                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded border uppercase transition-all cursor-pointer ${
+                            showCelestialOrbits 
+                              ? 'text-cyan-400 border-cyan-500/20 bg-cyan-950/20' 
+                              : 'text-gray-500 border-white/10'
+                          }`}
+                        >
+                          Orbits
+                        </button>
+                        <button
+                          onClick={toggleCelestialGravity}
+                          title="Toggle Planetary Orbit Gravity"
+                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded border uppercase transition-all cursor-pointer ${
+                            celestialGravityEnabled 
+                              ? 'text-emerald-400 border-emerald-500/20 bg-emerald-950/20' 
+                              : 'text-gray-500 border-white/10'
+                          }`}
+                        >
+                          Gravity
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Celestial Gravity Slider */}
+                    {celestialGravityEnabled && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center text-[9px] text-gray-400 font-mono">
+                          <span>Solar/Planetary Pull</span>
+                          <span className="text-emerald-400 font-bold font-mono">{celestialGravityIntensity.toFixed(1)}x</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.0"
+                          max="3.0"
+                          step="0.1"
+                          value={celestialGravityIntensity}
+                          onChange={(e) => setCelestialGravityIntensity(parseFloat(e.target.value))}
+                          className="w-full h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        />
+                      </div>
+                    )}
+
+                    {/* Dynamic Camera Planet Focus list */}
+                    <div className="space-y-1.5">
+                      <label className="text-[9px] uppercase font-mono tracking-wider text-gray-400 block pb-0.5">Focus Space Camera</label>
+                      <div className="flex items-center gap-1.5 overflow-x-auto pr-1 py-0.5 whitespace-nowrap scrollbar-thin">
+                        <button
+                          onClick={() => setTrackedPlanetId(null)}
+                          className={`px-2 py-1 text-[10px] rounded-lg border transition-all cursor-pointer ${
+                            trackedPlanetId === null
+                              ? 'bg-gradient-to-r from-purple-950/60 to-purple-900/30 text-white border-purple-500 font-bold'
+                              : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          🌌 Full View
+                        </button>
+                        {CELESTIAL_BODIES.map((body) => {
+                          const emoji = 
+                            body.id === 'sun' ? '☀️' : 
+                            body.id === 'mercury' ? '🌑' : 
+                            body.id === 'venus' ? '🟠' : 
+                            body.id === 'earth' ? '🌍' : 
+                            body.id === 'moon' ? '🌙' : 
+                            body.id === 'mars' ? '🔴' : 
+                            body.id === 'jupiter' ? '🪐' : 
+                            body.id === 'saturn' ? '🪐' : 
+                            body.id === 'uranus' ? '🔵' : 
+                            body.id === 'neptune' ? '🩵' : '🌏';
+
+                          return (
+                            <button
+                              key={body.id}
+                              onClick={() => setTrackedPlanetId(body.id)}
+                              className={`px-2 py-1 text-[10px] rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                                trackedPlanetId === body.id
+                                  ? 'bg-gradient-to-r from-indigo-950/60 to-purple-900/40 text-white border-indigo-400 font-bold'
+                                  : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span>{emoji}</span>
+                              <span className="font-medium">{body.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Dynamic Real-time Planetary Telemetry HUD */}
+                    {(() => {
+                      const trackedBody = CELESTIAL_BODIES.find(b => b.id === trackedPlanetId);
+                      if (!trackedBody) return null;
+                      return (
+                        <div className="mt-3 p-2.5 rounded-lg bg-black/60 border border-cyan-500/15 space-y-1.5 animate-fadeIn">
+                          {/* Header */}
+                          <div className="flex justify-between items-center pb-1 border-b border-white/5">
+                            <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase">{trackedBody.name} Telemetry</span>
+                            <span className="text-[8px] font-mono text-zinc-500">ACTIVE REALTIME READOUT</span>
+                          </div>
+
+                          {/* Mass, Gravity, Radius values in clean grids */}
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[8.5px] font-mono text-zinc-300">
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Gravity:</span>
+                              <span className="text-cyan-300 font-bold">{trackedBody.realGravity.toFixed(2)} m/s²</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Relative Mass:</span>
+                              <span className="text-cyan-300 font-bold">
+                                {trackedBody.massRelToEarth >= 1000 
+                                  ? `${(trackedBody.massRelToEarth/1000).toFixed(0)}k` 
+                                  : trackedBody.massRelToEarth.toFixed(3)}x
+                              </span>
+                            </div>
+                            <div className="flex justify-between col-span-2">
+                              <span className="text-zinc-500">Diameter (Equatorial):</span>
+                              <span className="text-indigo-300 font-bold">{trackedBody.diameterKM.toLocaleString()} km</span>
+                            </div>
+                            <div className="flex justify-between col-span-2">
+                              <span className="text-zinc-500">Orbital Distance:</span>
+                              <span className="text-amber-300 font-bold">
+                                {trackedBody.realDistanceAU > 0 ? `${trackedBody.realDistanceAU.toFixed(2)} AU` : '0.0 AU (Solar Barycenter)'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between col-span-2 border-t border-white/5 pt-1 mt-0.5">
+                              <span className="text-zinc-400 uppercase text-[7.5px]">Pull Field Range:</span>
+                              <span className="text-emerald-400 font-medium">Sphere of Influence &lt; {trackedBody.influenceRadius.toFixed(1)} units</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Core Synthesizer Sound controls */}

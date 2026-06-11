@@ -75,6 +75,16 @@ interface GameState {
   askOracle: (query: string) => Promise<void>;
   clearOracle: () => void;
 
+  // Celestial Solar System Settings
+  celestialGravityEnabled: boolean;
+  celestialGravityIntensity: number;
+  showCelestialOrbits: boolean;
+  trackedPlanetId: string | null;
+  toggleCelestialGravity: () => void;
+  setCelestialGravityIntensity: (intensity: number) => void;
+  toggleCelestialOrbits: () => void;
+  setTrackedPlanetId: (id: string | null) => void;
+
   // Web GL customization overrides
   flowSpeed: number;
   particlePreset: string;
@@ -241,6 +251,15 @@ export const useGameStore = create<GameState>((set, get) => {
     },
 
     // WebGL
+    celestialGravityEnabled: true,
+    celestialGravityIntensity: 1.0,
+    showCelestialOrbits: true,
+    trackedPlanetId: null,
+    toggleCelestialGravity: () => set((state) => ({ celestialGravityEnabled: !state.celestialGravityEnabled })),
+    setCelestialGravityIntensity: (intensity) => set({ celestialGravityIntensity: intensity }),
+    toggleCelestialOrbits: () => set((state) => ({ showCelestialOrbits: !state.showCelestialOrbits })),
+    setTrackedPlanetId: (id) => set({ trackedPlanetId: id }),
+
     flowSpeed: 1.0,
     particlePreset: 'nebula',
     particleShape: 'majestic_dust',
