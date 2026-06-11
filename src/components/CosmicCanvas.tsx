@@ -44,6 +44,49 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
       sendCursor({ x: pos.x, y: pos.y, z: pos.z });
     };
 
+    const triggerCanvasVibrateFeedback = (toolId: string) => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        let pattern = [20, 30, 20];
+        switch (toolId) {
+          case 'attractor':
+            pattern = [40, 30, 40];
+            break;
+          case 'repulsor':
+            pattern = [90, 40, 90];
+            break;
+          case 'vortex':
+            pattern = [30, 35, 30, 35, 40];
+            break;
+          case 'chaos':
+            pattern = [20, 25, 20, 30, 20];
+            break;
+          case 'wind':
+            pattern = [30, 90, 30];
+            break;
+          case 'strobe':
+            pattern = [50, 35, 50, 35];
+            break;
+          case 'singularity':
+            pattern = [100, 50, 250];
+            break;
+          case 'gravity_well':
+            pattern = [50, 35, 50];
+            break;
+          case 'prism':
+            pattern = [25, 15, 25, 15, 25];
+            break;
+          case 'magnet':
+            pattern = [120, 40, 120];
+            break;
+        }
+        try {
+          navigator.vibrate(pattern);
+        } catch {
+          // Suppress sandboxed window errors
+        }
+      }
+    };
+
     const handlePointerDown = (e: PointerEvent) => {
       window.focus();
       // Ignore click if clicking on HUD / interactive buttons
@@ -57,6 +100,7 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
         // Deploy currently selected tool from state
         const currentTool = useGameStore.getState().selectedTool;
         addForce({ x: pos.x, y: pos.y, z: pos.z }, currentTool);
+        triggerCanvasVibrateFeedback(currentTool);
       }
     };
 
@@ -70,6 +114,7 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
             return;
           }
           addForce({ x: mousePosRef.current.x, y: mousePosRef.current.y, z: mousePosRef.current.z }, 'repulsor');
+          triggerCanvasVibrateFeedback('repulsor');
           e.preventDefault();
         }
       }
@@ -112,6 +157,7 @@ function RotatingStars() {
 
 export function CosmicCanvas() {
   const mousePosRef = useRef<THREE.Vector3 | null>(null);
+  const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
 
   return (
     <div className="w-full h-full absolute inset-0 bg-[#020208]">
@@ -132,7 +178,11 @@ export function CosmicCanvas() {
         <SceneInteraction mousePosRef={mousePosRef} />
         
         <EffectComposer>
-          <Bloom luminanceThreshold={0.15} mipmapBlur intensity={1.8} />
+          <Bloom 
+            luminanceThreshold={Math.max(0.0, 0.45 - (bloomIntensity / 4.0) * 0.4)} 
+            mipmapBlur 
+            intensity={bloomIntensity} 
+          />
         </EffectComposer>
       </Canvas>
     </div>

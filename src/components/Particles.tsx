@@ -31,6 +31,8 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const forceFields = useGameStore((state) => state.forceFields);
   const flowSpeed = useGameStore((state) => state.flowSpeed || 1.0);
   const particlePreset = useGameStore((state) => state.particlePreset || 'nebula');
+  const particleShape = useGameStore((state) => state.particleShape || 'dust');
+  const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
   const incrementParticleCount = useGameStore((state) => state.incrementParticleCount);
 
   // Procedural gradient particle circular texture for soft glass-morphic blend
@@ -70,7 +72,7 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const particles = useMemo(() => {
     const arr: Particle[] = [];
     for (let i = 0; i < MAX_PARTICLES; i++) {
-      arr.push({
+      const p: Particle = {
         active: false,
         position: new THREE.Vector3(),
         velocity: new THREE.Vector3(),
@@ -78,10 +80,16 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
         baseColor: new THREE.Color(),
         life: 0,
         size: 0.05 + Math.random() * 0.08,
-      });
+      };
+
+      const colorHex = getPresetColor(particlePreset, i);
+      p.color.set(colorHex);
+      p.baseColor.set(colorHex);
+
+      arr.push(p);
     }
     return arr;
-  }, []);
+  }, [particlePreset]);
 
   // Recyclable THREE components to prevent garbage collection allocation lag
   const tempV1 = useMemo(() => new THREE.Vector3(), []);
@@ -93,6 +101,10 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const quaternion = useMemo(() => new THREE.Quaternion(), []);
   const spawnIndex = useRef(0);
+
+  // High performance spatial hashing arrays (reusable) for physical collisions
+  const gridHead = useMemo(() => new Int32Array(2000), []);
+  const gridNext = useMemo(() => new Int32Array(MAX_PARTICLES), []);
 
   // Spawn particle handler
   const spawnParticle = (pos: THREE.Vector3, colorHex: string) => {
@@ -127,8 +139,88 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
     spawnIndex.current = (spawnIndex.current + 1) % MAX_PARTICLES;
   };
 
+  // Trail particle decay features removed as requested
+
   // Keep track of spawned particle metrics for achievements
   const particlesToReportRef = useRef(0);
+
+  // Performance monitoring tracking variables
+  const fpsFrameCountRef = useRef(0);
+  const fpsTimeElapsedRef = useRef(0);
+  const lastMetricsUpdateRef = useRef(0);
+
+  // Interaction tracking refs
+  const prevMousePosRef = useRef<THREE.Vector3 | null>(null);
+  const playerLastPosRef = useRef<Record<string, THREE.Vector3>>({});
+  const isPointerDownRef = useRef(false);
+  const lastClickTimeRef = useRef(0);
+  const clickCountRef = useRef(1);
+  const movingFramesRef = useRef(0);
+
+  useEffect(() => {
+    const activeColor = myColor || getPresetColor(particlePreset, 0);
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
+        return;
+      }
+      isPointerDownRef.current = true;
+      const now = performance.now();
+      if (now - lastClickTimeRef.current < 350) {
+        clickCountRef.current++;
+      } else {
+        clickCountRef.current = 1;
+      }
+      lastClickTimeRef.current = now;
+
+      // Click or repeated clicks: spawn dynamic stardust burst
+      const burstSize = clickCountRef.current > 2 ? 160 : 80;
+      if (mousePosRef.current) {
+        for (let i = 0; i < burstSize; i++) {
+          spawnParticle(mousePosRef.current, activeColor);
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      isPointerDownRef.current = false;
+    };
+
+    const handleDblClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
+        return;
+      }
+      // Double click super planetary burst wave
+      const burstSize = 250;
+      if (mousePosRef.current) {
+        for (let i = 0; i < burstSize; i++) {
+          spawnParticle(mousePosRef.current, activeColor);
+        }
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('.interactive-overlay') || target.closest('button') || target.closest('input'))) {
+        return;
+      }
+      movingFramesRef.current = 8; // keep active for 8 frames of spawn
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('dblclick', handleDblClick);
+    window.addEventListener('pointermove', handlePointerMove);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('dblclick', handleDblClick);
+      window.removeEventListener('pointermove', handlePointerMove);
+    };
+  }, [myColor, particlePreset, mousePosRef]);
 
   useFrame((state, delta) => {
     if (!meshRef.current) return;
@@ -136,22 +228,89 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
     // Throttle extreme frame timings
     const dt = Math.min(0.1, delta) * flowSpeed;
 
-    // Spawn client particles (Cursor trail)
-    if (mousePosRef.current && myColor) {
-      const spawnCount = Math.floor(65 * flowSpeed); // Density scaled by flow speed
-      for (let i = 0; i < spawnCount; i++) {
-        spawnParticle(mousePosRef.current, myColor);
-      }
-      particlesToReportRef.current += spawnCount;
+    // 1. Rebuild spatial hashing grid for collision detection
+    const CELL_SIZE = 0.85;
+    gridHead.fill(-1);
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const p = particles[i];
+      if (!p.active) continue;
+      
+      const cx = Math.floor(p.position.x / CELL_SIZE);
+      const cy = Math.floor(p.position.y / CELL_SIZE);
+      const cz = Math.floor(p.position.z / CELL_SIZE);
+      
+      const hash = (Math.abs(cx * 73856093 ^ cy * 19349663 ^ cz * 83492791)) % 2000;
+      
+      gridNext[i] = gridHead[hash];
+      gridHead[hash] = i;
     }
 
-    // Spawn other players' particles
-    Object.values(players).forEach(player => {
-      if (player.position && player.color) {
-        tempV1.set(player.position.x, player.position.y, player.position.z);
-        const spawnCount = Math.floor(40 * flowSpeed);
+    // Track FPS metrics
+    fpsFrameCountRef.current++;
+    fpsTimeElapsedRef.current += delta;
+
+    // Throttle store updates to 0.3s for fluid performance with zero React rendering overhead
+    const elapsed = state.clock.getElapsedTime();
+    if (elapsed - lastMetricsUpdateRef.current > 0.3) {
+      let activeCount = 0;
+      for (let i = 0; i < MAX_PARTICLES; i++) {
+        if (particles[i].active) {
+          activeCount++;
+        }
+      }
+      const calculatedFps = Math.round(fpsFrameCountRef.current / fpsTimeElapsedRef.current);
+      const finalFps = isNaN(calculatedFps) ? 60 : Math.min(120, Math.max(1, calculatedFps));
+      
+      useGameStore.getState().updatePerformanceMetrics(finalFps, activeCount);
+
+      // Reset
+      fpsFrameCountRef.current = 0;
+      fpsTimeElapsedRef.current = 0;
+      lastMetricsUpdateRef.current = elapsed;
+    }
+
+    const activeColor = myColor || getPresetColor(particlePreset, 0);
+
+    // Spawn client particles when moving / dragging / clicking
+    if (mousePosRef.current) {
+      let spawnCount = 0;
+      if (movingFramesRef.current > 0) {
+        spawnCount += Math.floor(18 * flowSpeed);
+        movingFramesRef.current--;
+      }
+      if (isPointerDownRef.current) {
+        spawnCount += Math.floor(15 * flowSpeed);
+      }
+
+      if (spawnCount > 0) {
         for (let i = 0; i < spawnCount; i++) {
-          spawnParticle(tempV1, player.color);
+          spawnParticle(mousePosRef.current, activeColor);
+        }
+        particlesToReportRef.current += spawnCount;
+      }
+    }
+
+    // Spawn other players' particles (Only as they show movement)
+    Object.values(players).forEach(player => {
+      if (player.position) {
+        const playerColor = player.color || getPresetColor(particlePreset, 1);
+        tempV1.set(player.position.x, player.position.y, player.position.z);
+        let playerMoved = true;
+        const lastPos = playerLastPosRef.current[player.id];
+        if (lastPos) {
+          if (tempV1.distanceTo(lastPos) < 0.001) {
+            playerMoved = false;
+          }
+          lastPos.copy(tempV1);
+        } else {
+          playerLastPosRef.current[player.id] = new THREE.Vector3().copy(tempV1);
+        }
+
+        if (playerMoved) {
+          const spawnCount = Math.floor(25 * flowSpeed);
+          for (let i = 0; i < spawnCount; i++) {
+            spawnParticle(tempV1, playerColor);
+          }
         }
       }
     });
@@ -168,21 +327,15 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
     for (let i = 0; i < MAX_PARTICLES; i++) {
       const p = particles[i];
       if (!p.active) {
-        dummy.position.set(0, 0, 0);
+        // Inactive particles are kept offspace or hidden with zero scale so they don't render out-of-the-blue
+        dummy.position.set(9999, 9999, 9999);
         dummy.scale.set(0, 0, 0);
         dummy.updateMatrix();
         meshRef.current.setMatrixAt(i, dummy.matrix);
         continue;
       }
 
-      p.life -= dt;
-      if (p.life <= 0) {
-        p.active = false;
-        dummy.scale.set(0, 0, 0);
-        dummy.updateMatrix();
-        meshRef.current.setMatrixAt(i, dummy.matrix);
-        continue;
-      }
+      // We remove particle death/fading. All particles are permanently active, enabling an infinite, persistent cosmic fluid flow!
 
       // 1. Natural deep space Simplex/Curl Noise turbulence
       const noiseScale = 0.22;
@@ -280,25 +433,131 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
       p.velocity.multiplyScalar(0.965);
       p.position.addScaledVector(p.velocity, dt);
 
+      // --- HIGH_PERFORMANCE SPATIAL COLLISION SYSTEM ---
+      // Evaluate particle-particle collisions using our active grid to handle bounces and overlaps
+      const cx = Math.floor(p.position.x / CELL_SIZE);
+      const cy = Math.floor(p.position.y / CELL_SIZE);
+      const cz = Math.floor(p.position.z / CELL_SIZE);
+      const hash = (Math.abs(cx * 73856093 ^ cy * 19349663 ^ cz * 83492791)) % 2000;
+
+      let otherIdx = gridHead[hash];
+      let collisionPowerCount = 0; // Cap limits checks on extremely dense regions to guarantee flawless 60fps
+
+      while (otherIdx !== -1 && collisionPowerCount < 5) {
+        if (otherIdx !== i) {
+          const other = particles[otherIdx];
+          if (other.active) {
+            const dx = p.position.x - other.position.x;
+            const dy = p.position.y - other.position.y;
+            const dz = p.position.z - other.position.z;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            const radiusSum = (p.size + other.size) * 1.35; 
+            const minDistSq = radiusSum * radiusSum;
+
+            if (distSq > 0.0001 && distSq < minDistSq) {
+              collisionPowerCount++;
+              const dist = Math.sqrt(distSq);
+              const overlap = radiusSum - dist;
+
+              // Collision normal vector
+              const nx = dx / dist;
+              const ny = dy / dist;
+              const nz = dz / dist;
+
+              // Elastic positional correction (separates overlaps)
+              const correctionX = nx * overlap * 0.5;
+              const correctionY = ny * overlap * 0.5;
+              const correctionZ = nz * overlap * 0.5;
+
+              p.position.x += correctionX;
+              p.position.y += correctionY;
+              p.position.z += correctionZ;
+
+              other.position.x -= correctionX;
+              other.position.y -= correctionY;
+              other.position.z -= correctionZ;
+
+              // Relative velocity bounce handling
+              const rvx = p.velocity.x - other.velocity.x;
+              const rvy = p.velocity.y - other.velocity.y;
+              const rvz = p.velocity.z - other.velocity.z;
+
+              const relativeSpeed = rvx * nx + rvy * ny + rvz * nz;
+              if (relativeSpeed < 0) {
+                const restitution = 0.85; // crisp rebound coefficient
+                const impulse = -(1.0 + restitution) * relativeSpeed * 0.5;
+
+                p.velocity.x += nx * impulse;
+                p.velocity.y += ny * impulse;
+                p.velocity.z += nz * impulse;
+
+                other.velocity.x -= nx * impulse;
+                other.velocity.y -= ny * impulse;
+                other.velocity.z -= nz * impulse;
+              }
+            }
+          }
+        }
+        otherIdx = gridNext[otherIdx];
+      }
+
       // Aesthetic color shifts (glow and fade) relative to remaining lifetime
       const lifeRatio = p.life / PARTICLE_LIFETIME;
       p.color.copy(p.baseColor);
       
-      // Let standard elements fade to a beautiful stellar charcoal red near retirement
-      if (lifeRatio < 0.3) {
-        p.color.lerp(decayColor, (1.0 - (lifeRatio / 0.3)));
+      // High-fidelity dynamic preset transitions with full color blending support
+      if (particleShape === 'majestic_dust' || particleShape === 'dust') {
+        // High density cosmic gold dust shine blending with custom palette scaled by bloom intensity
+        const shineFactor = (0.2 + 0.15 * Math.sin(time * 3.5 + i)) * (bloomIntensity / 1.5);
+        p.color.addScalar(shineFactor);
+      } else if (particleShape === 'glowing_star' || particleShape === 'star') {
+        // Vibrant hot star sparkles scaled by bloom intensity
+        const twinkle = Math.abs(Math.sin(time * 6.5 + i));
+        if (twinkle > 0.85) {
+          p.color.addScalar(0.3 * (bloomIntensity / 1.5)); // High-voltage star sparkle
+        }
+      } else if (particleShape === 'nebula_bloom' || particleShape === 'ring') {
+        // Rich dynamic chromatic offset of nebulas
+        const offsetColor = new THREE.Color(p.baseColor).offsetHSL(0.12 * Math.cos(time + i * 0.05), 0, 0);
+        p.color.copy(offsetColor);
+      } else if (particleShape === 'fractal_spore' || particleShape === 'crystal') {
+        // Quantum spores chromatic inverter
+        const spFreq = Math.sin(time * 4.0 + i * 0.4);
+        if (spFreq > 0.72) {
+          p.color.setRGB(1.0 - p.color.r, 1.0 - p.color.g, 1.0 - p.color.b);
+        }
       }
 
       // Update actual Matrix Coordinates
       dummy.position.copy(p.position);
       
-      // Calculate particle velocity stretch distortion matching standard AAA visuals
+      // Let particles retain their brilliant shapes/colors completely without stretching into pencil-like lines
       const speed = p.velocity.length();
-      const finalLifeScale = Math.min(1.0, lifeRatio * 1.3);
-      const stretch = Math.min(3.5, Math.max(1, speed * 0.12));
-      const widthScale = p.size * finalLifeScale;
+      const finalLifeScale = 1.0;
       
-      dummy.scale.set(widthScale, widthScale, widthScale * stretch);
+      let widthScale = p.size * finalLifeScale;
+      let heightScale = widthScale;
+      let depthScale = widthScale;
+
+      // High fidelity physical scale transformations per-preset
+      if (particleShape === 'glowing_star' || particleShape === 'star') {
+        const starPulse = 1.0 + 0.35 * Math.sin(time * 8.0 + i * 1.5);
+        widthScale *= starPulse;
+        heightScale *= starPulse;
+        depthScale *= starPulse;
+      } else if (particleShape === 'nebula_bloom' || particleShape === 'ring') {
+        const bloomScale = 1.0 + 0.25 * Math.cos(time * 2.5 + i * 0.2);
+        widthScale *= bloomScale;
+        heightScale *= bloomScale;
+        depthScale *= bloomScale;
+      } else if (particleShape === 'fractal_spore' || particleShape === 'crystal') {
+        const sporeJitter = 1.0 + 0.15 * (Math.sin(time * 12.0 + i) > 0 ? 1 : -1);
+        widthScale *= sporeJitter;
+        heightScale *= sporeJitter;
+        depthScale *= sporeJitter;
+      }
+      
+      dummy.scale.set(widthScale, heightScale, depthScale);
 
       // Orient the stretch mesh to face the velocity direction vector
       if (speed > 0.01) {
@@ -318,10 +577,13 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
     }
   });
 
-  // Render highly optimized instanced mesh using Spheres
+  // Render highly optimized instanced mesh with dynamic geometry based on selected particle shape
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, MAX_PARTICLES]}>
-      <sphereGeometry args={[1, 10, 10]} />
+    <instancedMesh key={particleShape} ref={meshRef} args={[undefined, undefined, MAX_PARTICLES]}>
+      {(particleShape === 'glowing_star' || particleShape === 'star') && <octahedronGeometry args={[1, 0]} />}
+      {(particleShape === 'nebula_bloom' || particleShape === 'ring') && <torusGeometry args={[0.8, 0.22, 6, 12]} />}
+      {(particleShape === 'fractal_spore' || particleShape === 'crystal') && <tetrahedronGeometry args={[1, 0]} />}
+      {(particleShape === 'majestic_dust' || particleShape === 'dust') && <sphereGeometry args={[1, 6, 6]} />}
       <meshBasicMaterial 
         map={particleTexture}
         transparent 

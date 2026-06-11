@@ -291,6 +291,113 @@ function Singularity({ position, color }: { position: THREE.Vector3; color: stri
   );
 }
 
+// 8. Gravity Well Accretion Rings
+function GravityWell({ position, color }: { position: THREE.Vector3; color: string }) {
+  const ringsRef = useRef<THREE.Group>(null);
+  const mountedAt = useRef(Date.now());
+
+  useFrame((state) => {
+    const age = (Date.now() - mountedAt.current) / 1000;
+    let lifeScale = 1;
+    if (age < 0.5) lifeScale = age / 0.5;
+    else if (age > 9.5) lifeScale = Math.max(0, (10 - age) / 0.5);
+
+    if (ringsRef.current) {
+      const time = state.clock.getElapsedTime();
+      ringsRef.current.rotation.z = time * 0.45;
+      ringsRef.current.children.forEach((child, idx) => {
+        child.rotation.x = time * (0.2 + idx * 0.1);
+        child.rotation.y = time * (0.15 + idx * 0.08);
+        const sc = (1.0 + Math.sin(time + idx) * 0.05) * lifeScale;
+        child.scale.set(sc, sc, sc);
+      });
+    }
+  });
+
+  return (
+    <group position={position} ref={ringsRef}>
+      <mesh>
+        <sphereGeometry args={[0.25, 16, 16]} />
+        <meshBasicMaterial color="#ffffff" />
+      </mesh>
+      {[1.0, 1.6, 2.2].map((r, i) => (
+        <mesh key={i}>
+          <torusGeometry args={[r, 0.02, 6, 40]} />
+          <meshBasicMaterial color={color || "#6366f1"} transparent opacity={0.35} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// 9. Prismatic Hue Crystals
+function PrismField({ position }: { position: THREE.Vector3 }) {
+  const crystalRef = useRef<THREE.Mesh>(null);
+  const mountedAt = useRef(Date.now());
+
+  useFrame((state) => {
+    const age = (Date.now() - mountedAt.current) / 1000;
+    let lifeScale = 1;
+    if (age < 0.5) lifeScale = age / 0.5;
+    else if (age > 9.5) lifeScale = Math.max(0, (10 - age) / 0.5);
+
+    const time = state.clock.getElapsedTime();
+    if (crystalRef.current) {
+      crystalRef.current.rotation.x = time * 0.8;
+      crystalRef.current.rotation.y = time * 1.25;
+      crystalRef.current.rotation.z = time * 0.6;
+      crystalRef.current.scale.setScalar((0.7 + Math.sin(time * 3.0) * 0.06) * lifeScale);
+      
+      const material = crystalRef.current.material as THREE.MeshBasicMaterial;
+      const hue = (time * 0.2) % 1.0;
+      material.color.setHSL(hue, 1.0, 0.6);
+    }
+  });
+
+  return (
+    <mesh ref={crystalRef} position={position}>
+      <octahedronGeometry args={[0.6, 0]} />
+      <meshBasicMaterial color="#ffffff" wireframe />
+    </mesh>
+  );
+}
+
+// 10. Dipole Magnetic Loops
+function MagnetField({ position, color }: { position: THREE.Vector3; color: string }) {
+  const loopsRef = useRef<THREE.Group>(null);
+  const mountedAt = useRef(Date.now());
+
+  useFrame((state) => {
+    const age = (Date.now() - mountedAt.current) / 1000;
+    let lifeScale = 1;
+    if (age < 0.5) lifeScale = age / 0.5;
+    else if (age > 9.5) lifeScale = Math.max(0, (10 - age) / 0.5);
+
+    const time = state.clock.getElapsedTime();
+    if (loopsRef.current) {
+      loopsRef.current.rotation.y = time * 0.5;
+      loopsRef.current.scale.setScalar((1.0 + Math.sin(time * 2.0) * 0.15) * lifeScale);
+    }
+  });
+
+  return (
+    <group position={position} ref={loopsRef}>
+      <mesh>
+        <boxGeometry args={[0.15, 0.55, 0.15]} />
+        <meshBasicMaterial color="#ffffff" />
+      </mesh>
+      {[0.5, 0.9, 1.3].map((r, i) => (
+        <group key={i} rotation={[0, 0, i * Math.PI / 3]}>
+          <mesh>
+            <torusGeometry args={[r, 0.015, 4, 30]} />
+            <meshBasicMaterial color={color || "#ec4899"} transparent opacity={0.3} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 // Global Orchestrator
 export function ForceFields() {
   const forceFields = useGameStore((state) => state.forceFields);
@@ -315,6 +422,12 @@ export function ForceFields() {
             return <Strobe key={force.id} position={pos} color={force.color} />;
           case 'singularity':
             return <Singularity key={force.id} position={pos} color={force.color} />;
+          case 'gravity_well':
+            return <GravityWell key={force.id} position={pos} color={force.color} />;
+          case 'prism':
+            return <PrismField key={force.id} position={pos} />;
+          case 'magnet':
+            return <MagnetField key={force.id} position={pos} color={force.color} />;
           default:
             return <Attractor key={force.id} position={pos} color={force.color} />;
         }

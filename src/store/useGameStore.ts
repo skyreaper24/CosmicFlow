@@ -65,6 +65,9 @@ interface GameState {
   totalForceFieldsPlaced: number;
   achievements: Achievement[];
   recentUnlock: string | null;
+  fps: number;
+  activeParticleCount: number;
+  updatePerformanceMetrics: (fps: number, count: number) => void;
   
   // Oracle assistant log
   oracleMessages: OracleMessage[];
@@ -75,8 +78,13 @@ interface GameState {
   // Web GL customization overrides
   flowSpeed: number;
   particlePreset: string;
+  particleShape: string;
+  bloomIntensity: number;
   setFlowSpeed: (speed: number) => void;
   setParticlePreset: (preset: string) => void;
+  setParticleShape: (shape: string) => void;
+  setBloomIntensity: (intensity: number) => void;
+  setCustomColor: (color: string) => void;
 
   // Actions
   connect: () => void;
@@ -98,6 +106,58 @@ const initialAchievements: Achievement[] = [
   { id: 'particle_breeder', title: 'Galaxy Constructor', description: 'Spawn over 50,000 stardust particles.', metric: 'particles', target: 50000, unlocked: false }
 ];
 
+// Helper to play high-fidelity haptic feedback patterns
+export function triggerHapticFeedback(type: string) {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    let pattern: number[];
+    switch (type) {
+      case 'attractor':
+        pattern = [40, 35, 40]; // Soft pleasant gravitational pull
+        break;
+      case 'repulsor':
+        pattern = [120]; // Impactful kinetic burst
+        break;
+      case 'vortex':
+        pattern = [30, 40, 30, 40, 50]; // Whipping whirlwind sweep
+        break;
+      case 'chaos':
+        pattern = [15, 25, 20, 35, 15, 45, 15]; // Erratic dynamic jitter
+        break;
+      case 'wind':
+        pattern = [25, 120, 25]; // Smooth gust expansion
+        break;
+      case 'strobe':
+        pattern = [60, 40, 60, 40, 60]; // Rhythmic flashing pulses
+        break;
+      case 'singularity':
+        pattern = [95, 60, 320]; // Heavy collapse and explosion drop
+        break;
+      case 'gravity_well':
+        pattern = [50, 40, 50, 40]; // Orbit resonance feedback
+        break;
+      case 'prism':
+        pattern = [30, 20, 30, 20, 30, 20]; // High speed light ripple
+        break;
+      case 'magnet':
+        pattern = [150, 50, 150]; // Magnet pull slide recoil
+        break;
+      case 'achievement':
+        pattern = [80, 50, 80, 50, 160]; // Sparkling celebratory cascade
+        break;
+      case 'level_up':
+        pattern = [120, 60, 220, 60, 320]; // Rising triumphant haptic fan-fare
+        break;
+      default:
+        pattern = [50];
+    }
+    try {
+      navigator.vibrate(pattern);
+    } catch (e) {
+      // Catch potential sandbox / permission security issues
+    }
+  }
+}
+
 export const useGameStore = create<GameState>((set, get) => {
   // Load local state securely
   let savedLevel = 1;
@@ -105,8 +165,10 @@ export const useGameStore = create<GameState>((set, get) => {
   let savedParticles = 0;
   let savedFields = 0;
   let savedAchievements = [...initialAchievements];
+  let savedColor: string | null = null;
 
   try {
+    savedColor = localStorage.getItem('cosmic_my_color');
     const localLevel = localStorage.getItem('cosmic_level');
     if (localLevel) savedLevel = parseInt(localLevel, 10);
     const localXp = localStorage.getItem('cosmic_xp');
@@ -134,6 +196,7 @@ export const useGameStore = create<GameState>((set, get) => {
       if (ach.metric === metric && !ach.unlocked && currentValue >= ach.target) {
         updated = true;
         synth.playFeedback('achievement');
+        triggerHapticFeedback('achievement');
         set({ recentUnlock: ach.title });
         setTimeout(() => set({ recentUnlock: null }), 6000);
         return {
@@ -155,7 +218,7 @@ export const useGameStore = create<GameState>((set, get) => {
 
   return {
     myId: null,
-    myColor: null,
+    myColor: savedColor,
     players: {},
     forceFields: {},
     ws: null,
@@ -180,8 +243,18 @@ export const useGameStore = create<GameState>((set, get) => {
     // WebGL
     flowSpeed: 1.0,
     particlePreset: 'nebula',
+    particleShape: 'majestic_dust',
+    bloomIntensity: 1.8,
     setFlowSpeed: (speed) => set({ flowSpeed: speed }),
     setParticlePreset: (preset) => set({ particlePreset: preset }),
+    setParticleShape: (shape) => set({ particleShape: shape }),
+    setBloomIntensity: (intensity) => set({ bloomIntensity: intensity }),
+    setCustomColor: (color) => {
+      set({ myColor: color });
+      try {
+        localStorage.setItem('cosmic_my_color', color);
+      } catch (e) {}
+    },
 
     // Persistent State
     level: savedLevel,
@@ -191,6 +264,9 @@ export const useGameStore = create<GameState>((set, get) => {
     totalForceFieldsPlaced: savedFields,
     achievements: savedAchievements,
     recentUnlock: null,
+    fps: 60,
+    activeParticleCount: 0,
+    updatePerformanceMetrics: (fps, count) => set({ fps, activeParticleCount: count }),
 
     // ChatGPT Oracle Log
     oracleMessages: [
@@ -283,6 +359,7 @@ export const useGameStore = create<GameState>((set, get) => {
       
       if (leveledUp) {
         synth.playFeedback('level_up');
+        triggerHapticFeedback('level_up');
         checkAchievementUnlock('level', level);
       }
 
@@ -318,7 +395,8 @@ export const useGameStore = create<GameState>((set, get) => {
         const data = JSON.parse(event.data);
         
         if (data.type === 'init') {
-          set({ myId: data.id, myColor: data.color });
+          const finalColor = savedColor || data.color;
+          set({ myId: data.id, myColor: finalColor });
           const playersMap: Record<string, Player> = {};
           data.players.forEach((p: Player) => {
             if (p.id !== data.id) playersMap[p.id] = p;
@@ -400,6 +478,7 @@ export const useGameStore = create<GameState>((set, get) => {
       
       // Play local synthesizer sound feedback instantly for ultra responsiveness
       synth.playFeedback(type);
+      triggerHapticFeedback(type);
 
       // Increment placement counts & rewards
       const updatedCount = get().totalForceFieldsPlaced + 1;

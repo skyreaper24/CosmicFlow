@@ -276,6 +276,78 @@ class AudioSynth {
           spark.stop(t + 0.15);
           break;
         }
+        case 'gravity_well': {
+          // Heavy oscillating sub-bass frequency modulation (resonance sweep)
+          const osc = this.ctx.createOscillator();
+          const lfo = this.ctx.createOscillator();
+          const lfoGain = this.ctx.createGain();
+          const gain = this.ctx.createGain();
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(90, t);
+          
+          lfo.type = 'sine';
+          lfo.frequency.setValueAtTime(8, t); // 8Hz modulation
+          lfoGain.gain.setValueAtTime(35, t);
+
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.linearRampToValueAtTime(0.25, t + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+          osc.connect(gain);
+          gain.connect(this.masterGain);
+
+          lfo.start(t);
+          osc.start(t);
+          lfo.stop(t + 1.2);
+          osc.stop(t + 1.2);
+          break;
+        }
+        case 'prism': {
+          // Rainbow cascade chord chime
+          const notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.50]; // Pentatonic rainbow
+          notes.forEach((freq, idx) => {
+            const osc = this.ctx!.createOscillator();
+            const gain = this.ctx!.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, t + idx * 0.05);
+
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(0.1, t + idx * 0.05 + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.05 + 0.4);
+
+            osc.connect(gain);
+            gain.connect(this.masterGain!);
+            osc.start(t);
+            osc.stop(t + idx * 0.05 + 0.5);
+          });
+          break;
+        }
+        case 'magnet': {
+          // Slide key down and deep pulse
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(140, t);
+          osc.frequency.exponentialRampToValueAtTime(55, t + 0.6);
+
+          gain.gain.setValueAtTime(0.15, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(180, t);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.masterGain);
+
+          osc.start(t);
+          osc.stop(t + 0.75);
+          break;
+        }
         case 'level_up': {
           // Beautiful positive melodic arpeggio
           const root = 261.63; // C4

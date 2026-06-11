@@ -39,6 +39,14 @@ export default function App() {
   const setFlowSpeed = useGameStore((state) => state.setFlowSpeed);
   const particlePreset = useGameStore((state) => state.particlePreset);
   const setParticlePreset = useGameStore((state) => state.setParticlePreset);
+  const particleShape = useGameStore((state) => state.particleShape || 'dust');
+  const setParticleShape = useGameStore((state) => state.setParticleShape);
+  const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
+  const setBloomIntensity = useGameStore((state) => state.setBloomIntensity);
+  const setCustomColor = useGameStore((state) => state.setCustomColor);
+  const addForce = useGameStore((state) => state.addForce);
+  const fps = useGameStore((state) => state.fps);
+  const activeParticleCount = useGameStore((state) => state.activeParticleCount);
   
   // Local active tabs
   const [rightTab, setRightTab] = useState<'dashboard' | 'oracle' | 'bible'>('dashboard');
@@ -71,17 +79,106 @@ export default function App() {
     }
   }, [oracleMessages, oracleLoading]);
 
+  // Helper to trigger specific high-fidelity haptic vibration patterns per tool ID, using light pulse [20, 30, 20] as fallback
+  const triggerVibrateFeedback = (toolId: string) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      let pattern = [20, 30, 20];
+      switch (toolId) {
+        case 'attractor':
+          pattern = [40, 30, 40];
+          break;
+        case 'repulsor':
+          pattern = [90, 40, 90];
+          break;
+        case 'vortex':
+          pattern = [30, 35, 30, 35, 40];
+          break;
+        case 'chaos':
+          pattern = [20, 25, 20, 30, 20];
+          break;
+        case 'wind':
+          pattern = [30, 90, 30];
+          break;
+        case 'strobe':
+          pattern = [50, 35, 50, 35];
+          break;
+        case 'singularity':
+          pattern = [100, 50, 250];
+          break;
+        case 'gravity_well':
+          pattern = [50, 35, 50];
+          break;
+        case 'prism':
+          pattern = [25, 15, 25, 15, 25];
+          break;
+        case 'magnet':
+          pattern = [120, 40, 120];
+          break;
+      }
+      try {
+        navigator.vibrate(pattern);
+      } catch (e) {
+        // Suppress sandboxed environment errors
+      }
+    }
+  };
+
+  // Bind numerical keys 1-0 for selecting and instantly deploying mechanics (ignoring when input/textarea is focused)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+        return;
+      }
+      
+      const keyMap: Record<string, string> = {
+        '1': 'attractor',
+        '2': 'repulsor',
+        '3': 'vortex',
+        '4': 'chaos',
+        '5': 'wind',
+        '6': 'strobe',
+        '7': 'singularity',
+        '8': 'gravity_well',
+        '9': 'prism',
+        '0': 'magnet'
+      };
+
+      if (e.key in keyMap) {
+        const toolId = keyMap[e.key];
+        setTool(toolId);
+        
+        // Instantly spawn/deploy the mechanic in the simulation
+        const randPos = {
+          x: (Math.random() - 0.5) * 10,
+          y: (Math.random() - 0.5) * 6,
+          z: 0
+        };
+        addForce(randPos, toolId);
+        triggerVibrateFeedback(toolId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [setTool, addForce]);
+
   const playerCount = Object.keys(players).length + 1;
 
   // Render lists of tools with names and detailed behaviors
   const TOOL_SPECS = [
-    { id: 'attractor', label: 'Attractor', desc: 'Gravitational sink. Orbit cycles.', color: 'text-cyan-400 bg-cyan-950/40 border-cyan-500/20', shortcut: 'Click' },
-    { id: 'repulsor', label: 'Repulsor', desc: 'Expels stardust outward.', color: 'text-rose-400 bg-rose-950/40 border-rose-500/20', shortcut: 'Space' },
-    { id: 'vortex', label: 'Vortex Spindle', desc: 'Tangent torque swirling spiral.', color: 'text-purple-400 bg-purple-950/40 border-purple-500/20', shortcut: 'F3' },
-    { id: 'chaos', label: 'Chaos Field', desc: 'Turbulent jitter simplex noise.', color: 'text-yellow-400 bg-yellow-950/40 border-yellow-500/20', shortcut: 'F4' },
-    { id: 'wind', label: 'Solar Wind', desc: 'Steady horizontal stream sweep.', color: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/20', shortcut: 'F5' },
-    { id: 'strobe', label: 'Energy Strobe', desc: 'Violent high energy pulses.', color: 'text-amber-400 bg-amber-950/40 border-amber-500/20', shortcut: 'F6' },
-    { id: 'singularity', label: 'Singularity', desc: 'Heavy compression & boom discharge.', color: 'text-indigo-400 bg-indigo-950/40 border-indigo-500/20', shortcut: 'F7' }
+    { id: 'attractor', label: 'Attractor Sink', desc: 'Gravitational center. Orbit fields.', color: 'text-cyan-400 bg-cyan-950/40 border-cyan-500/20', shortcut: '[1]' },
+    { id: 'repulsor', label: 'Repulsor Blast', desc: 'Expels stardust outward.', color: 'text-rose-400 bg-rose-950/40 border-rose-500/20', shortcut: '[2]' },
+    { id: 'vortex', label: 'Vortex Spindle', desc: 'Swirling tangent torque spiral.', color: 'text-purple-400 bg-purple-950/40 border-purple-500/20', shortcut: '[3]' },
+    { id: 'chaos', label: 'Chaos Field', desc: 'Turbulent erratic jittering noise.', color: 'text-yellow-400 bg-yellow-950/40 border-yellow-500/20', shortcut: '[4]' },
+    { id: 'wind', label: 'Solar Wind', desc: 'Steady horizontal wind stream.', color: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/20', shortcut: '[5]' },
+    { id: 'strobe', label: 'Energy Strobe', desc: 'Violent high energy strobe pulses.', color: 'text-amber-400 bg-amber-950/40 border-amber-500/20', shortcut: '[6]' },
+    { id: 'singularity', label: 'Singularity', desc: 'Massive collapse & boom release.', color: 'text-indigo-400 bg-indigo-950/40 border-indigo-500/20', shortcut: '[7]' },
+    { id: 'gravity_well', label: 'Gravity Well', desc: 'Slow planetary accretion rings.', color: 'text-indigo-400 bg-indigo-950/40 border-indigo-500/20', shortcut: '[8]' },
+    { id: 'prism', label: 'Prism Refractor', desc: 'Rainbow spectrum color shifter.', color: 'text-fuchsia-400 bg-fuchsia-950/40 border-fuchsia-500/20', shortcut: '[9]' },
+    { id: 'magnet', label: 'Dipole Magnet', desc: 'Fast magnetic suction attraction.', color: 'text-pink-400 bg-pink-950/40 border-pink-500/20', shortcut: '[0]' }
   ];
 
   return (
@@ -138,8 +235,22 @@ export default function App() {
             </div>
           </div>
 
-          {/* Active Player Connections HUD block */}
+          {/* Performance Monitoring HUD widget */}
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4 bg-black/60 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/5 text-xs font-mono select-none shadow-md">
+              <div className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${fps >= 45 ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : fps >= 25 ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]' : 'bg-rose-400 shadow-[0_0_8px_#f87171]'}`} />
+                <span className="text-gray-400">FPS:</span>
+                <span className={`${fps >= 45 ? 'text-emerald-400 font-bold' : fps >= 25 ? 'text-amber-400 font-bold' : 'text-rose-400 font-bold'}`}>{fps}</span>
+              </div>
+              <div className="w-px h-3 bg-white/10" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400">Stardust:</span>
+                <span className="text-purple-400 font-bold">{activeParticleCount.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Active Player Connections HUD block */}
             <div className="flex items-center gap-2 bg-emerald-950/40 backdrop-blur-md px-4 py-2.5 rounded-xl border border-emerald-500/20 text-emerald-400">
               <Users size={15} className="animate-pulse" />
               <span className="text-xs font-mono font-bold uppercase tracking-wider">{playerCount} Online</span>
@@ -182,7 +293,18 @@ export default function App() {
                       {TOOL_SPECS.map((tool) => (
                         <button
                           key={tool.id}
-                          onClick={() => setTool(tool.id)}
+                          onClick={() => {
+                            setTool(tool.id);
+                            // Immediately trigger/deploy the mechanic at a randomized central coordinate
+                            const randPos = {
+                              x: (Math.random() - 0.5) * 10,
+                              y: (Math.random() - 0.5) * 6,
+                              z: 0
+                            };
+                            addForce(randPos, tool.id);
+                            triggerVibrateFeedback(tool.id);
+                          }}
+                          title="Click to select & immediately deploy on-stage"
                           className={`flex items-center justify-between text-left p-2.5 rounded-xl border transition-all duration-250 cursor-pointer ${
                             selectedTool === tool.id 
                               ? 'bg-gradient-to-r from-indigo-950/60 to-purple-900/30 border-purple-500 text-white shadow-[0_0_12px_rgba(139,92,246,0.25)] scale-[1.02]' 
@@ -196,7 +318,11 @@ export default function App() {
                               tool.id === 'vortex' ? 'bg-purple-400' :
                               tool.id === 'chaos' ? 'bg-yellow-400' :
                               tool.id === 'wind' ? 'bg-emerald-400' :
-                              tool.id === 'strobe' ? 'bg-amber-400' : 'bg-indigo-400'
+                              tool.id === 'strobe' ? 'bg-amber-400' :
+                              tool.id === 'singularity' ? 'bg-indigo-500' :
+                              tool.id === 'gravity_well' ? 'bg-blue-400' :
+                              tool.id === 'prism' ? 'bg-fuchsia-400' :
+                              tool.id === 'magnet' ? 'bg-pink-400' : 'bg-gray-400'
                             }`} />
                             <div className="overflow-hidden">
                               <p className="text-xs font-semibold leading-tight">{tool.label}</p>
@@ -234,6 +360,74 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Custom Particle Geometry Shape Picker */}
+                  <div className="space-y-2 border-t border-white/5 pt-3">
+                    <label className="text-[10px] uppercase font-mono tracking-wider text-gray-400">Particle Geometry Essence</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { id: 'majestic_dust', label: '✨ Majestic Dust' },
+                        { id: 'glowing_star', label: '⭐ Glowing Star' },
+                        { id: 'nebula_bloom', label: '🌸 Nebula Bloom' },
+                        { id: 'fractal_spore', label: '👾 Fractal Spore' }
+                      ].map((shape) => (
+                        <button
+                          id={`shape-${shape.id}`}
+                          key={shape.id}
+                          onClick={() => setParticleShape(shape.id)}
+                          className={`py-2 px-2.5 text-xs rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                            particleShape === shape.id
+                              ? 'bg-gradient-to-r from-purple-950/60 to-purple-900/30 text-white border-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.2)] scale-[1.02]'
+                              : 'bg-white/5 text-gray-400 border-transparent hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span>{shape.label}</span>
+                          {particleShape === shape.id && <CheckCircle className="w-3 h-3 text-purple-400" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Independent Stardust Colorizer */}
+                  <div className="space-y-2 border-t border-white/5 pt-3">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] uppercase font-mono tracking-wider text-gray-400">Independent Custom Color</label>
+                      <span className="text-[9px] font-mono text-gray-400 bg-white/5 px-1.5 py-0.5 rounded-md border border-white/5">{myColor || '#A855F7'}</span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        id="customColorPicker"
+                        value={myColor || '#a855f7'}
+                        onChange={(e) => setCustomColor(e.target.value)}
+                        className="w-8 h-8 rounded-lg border border-white/20 bg-transparent cursor-pointer transition-transform duration-100 active:scale-90"
+                        title="Independent Spectrometer Wheel Picker"
+                      />
+                      <div className="flex-1 grid grid-cols-6 gap-1">
+                        {[
+                          '#a855f7', // Violet Pulsar
+                          '#3b82f6', // Azure Aurora
+                          '#06b6d4', // Ice Cyan
+                          '#10b981', // Emerald Storm
+                          '#f97316', // Ember Nova
+                          '#ec4899'  // Pink Nebula
+                        ].map((hex) => (
+                          <button
+                            key={hex}
+                            onClick={() => setCustomColor(hex)}
+                            className={`h-5 rounded-md transition-transform hover:scale-110 cursor-pointer border ${
+                              myColor?.toLowerCase() === hex.toLowerCase() 
+                                ? 'border-white scale-110 shadow-[0_0_4px_rgba(255,255,255,0.4)]' 
+                                : 'border-transparent'
+                            }`}
+                            style={{ backgroundColor: hex }}
+                            title={`Palette Swatch ${hex}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Flow Speed Multiplier Slider */}
                   <div className="space-y-1.5 border-t border-white/5 pt-3">
                     <div className="flex justify-between items-center text-[10px] text-gray-400 uppercase font-mono">
@@ -248,6 +442,24 @@ export default function App() {
                       value={flowSpeed}
                       onChange={(e) => setFlowSpeed(parseFloat(e.target.value))}
                       className="w-full h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                  </div>
+
+                  {/* Bloom Intensity Slider - Adjusts the glow threshold of majestic dust & stars */}
+                  <div className="space-y-1.5 border-t border-white/5 pt-3">
+                    <div className="flex justify-between items-center text-[10px] text-gray-400 uppercase font-mono">
+                      <span>Aetheric Bloom Glow</span>
+                      <span className="text-purple-400 font-bold font-mono">{bloomIntensity.toFixed(1)}x</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.1" 
+                      max="4.0" 
+                      step="0.1" 
+                      value={bloomIntensity}
+                      onChange={(e) => setBloomIntensity(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                      title="Adjusts bloom intensity and glow threshold for majestic dust and glowing stars"
                     />
                   </div>
 
@@ -393,7 +605,8 @@ export default function App() {
                         <ul className="list-disc list-inside text-[11px] space-y-1 text-gray-300">
                           <li>Click anywhere on stage to spawn the <span className="text-white font-medium">{selectedTool}</span> at your path.</li>
                           <li>Drag cursor to spray sparkling multi-colored stardust.</li>
-                          <li>Press <span className="text-white font-medium font-mono border border-white/15 px-1 py-0.2 rounded bg-black/40">Spacebar</span> to quickly deploy a Repulsor wave.</li>
+                          <li>Press keys <span className="text-white font-medium font-mono border border-white/15 px-1 rounded bg-black/40">1</span> to <span className="text-white font-medium font-mono border border-white/15 px-1 rounded bg-black/40">0</span> to select tools instantly.</li>
+                          <li>Press <span className="text-white font-medium font-mono border border-white/15 px-1 rounded bg-black/40">Spacebar</span> to quickly deploy a Repulsor wave.</li>
                         </ul>
                       </div>
 
