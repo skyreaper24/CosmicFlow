@@ -21,6 +21,24 @@ export default function App() {
   const disconnect = useGameStore((state) => state.disconnect);
   const players = useGameStore((state) => state.players);
   const myColor = useGameStore((state) => state.myColor);
+  const myName = useGameStore((state) => state.myName);
+  const myScore = useGameStore((state) => state.myScore || 0);
+  const updateProfile = useGameStore((state) => state.updateProfile);
+  
+  const [profileModalOpen, setProfileModalOpen] = useState(() => {
+    try {
+      return !localStorage.getItem('cosmic_my_name');
+    } catch {
+      return true;
+    }
+  });
+  const [tempName, setTempName] = useState(myName || '');
+  const [tempColor, setTempColor] = useState(myColor || '#facc15');
+
+  useEffect(() => {
+    if (myName && !tempName) setTempName(myName);
+    if (myColor && tempColor === '#facc15') setTempColor(myColor);
+  }, [myName, myColor]);
   
   // Custom store inputs
   const selectedTool = useGameStore((state) => state.selectedTool);
@@ -275,6 +293,19 @@ export default function App() {
               <Users size={15} className="animate-pulse" />
               <span className="text-xs font-mono font-bold uppercase tracking-wider">{playerCount} Online</span>
             </div>
+
+            {/* Profile trigger button */}
+            <button 
+              onClick={() => {
+                setTempName(myName || '');
+                setTempColor(myColor || '#facc15');
+                setProfileModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 bg-yellow-950/40 hover:bg-yellow-950/60 text-yellow-400 border border-yellow-500/30 rounded-xl px-4 py-2.5 text-xs font-mono font-bold transition-all cursor-pointer"
+            >
+              <Gamepad2 size={13} className="animate-pulse" />
+              <span>PROFILE ({myName || 'Edit'})</span>
+            </button>
             
             <button 
               onClick={() => setPanelsCollapsed(!panelsCollapsed)}
@@ -483,149 +514,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Solar System & Celestial Gravity Panel */}
-                  <div className="space-y-3.5 border-t border-white/5 pt-3.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                        <span className="text-[10px] uppercase font-mono tracking-wider text-indigo-300 font-semibold">Celestial Mechanics</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={toggleCelestialOrbits}
-                          title="Toggle Planet Orbits"
-                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded border uppercase transition-all cursor-pointer ${
-                            showCelestialOrbits 
-                              ? 'text-cyan-400 border-cyan-500/20 bg-cyan-950/20' 
-                              : 'text-gray-500 border-white/10'
-                          }`}
-                        >
-                          Orbits
-                        </button>
-                        <button
-                          onClick={toggleCelestialGravity}
-                          title="Toggle Planetary Orbit Gravity"
-                          className={`px-1.5 py-0.5 text-[8px] font-mono rounded border uppercase transition-all cursor-pointer ${
-                            celestialGravityEnabled 
-                              ? 'text-emerald-400 border-emerald-500/20 bg-emerald-950/20' 
-                              : 'text-gray-500 border-white/10'
-                          }`}
-                        >
-                          Gravity
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Celestial Gravity Slider */}
-                    {celestialGravityEnabled && (
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[9px] text-gray-400 font-mono">
-                          <span>Solar/Planetary Pull</span>
-                          <span className="text-emerald-400 font-bold font-mono">{celestialGravityIntensity.toFixed(1)}x</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0.0"
-                          max="3.0"
-                          step="0.1"
-                          value={celestialGravityIntensity}
-                          onChange={(e) => setCelestialGravityIntensity(parseFloat(e.target.value))}
-                          className="w-full h-1 bg-gray-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                        />
-                      </div>
-                    )}
-
-                    {/* Dynamic Camera Planet Focus list */}
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] uppercase font-mono tracking-wider text-gray-400 block pb-0.5">Focus Space Camera</label>
-                      <div className="flex items-center gap-1.5 overflow-x-auto pr-1 py-0.5 whitespace-nowrap scrollbar-thin">
-                        <button
-                          onClick={() => setTrackedPlanetId(null)}
-                          className={`px-2 py-1 text-[10px] rounded-lg border transition-all cursor-pointer ${
-                            trackedPlanetId === null
-                              ? 'bg-gradient-to-r from-purple-950/60 to-purple-900/30 text-white border-purple-500 font-bold'
-                              : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10 hover:text-white'
-                          }`}
-                        >
-                          🌌 Full View
-                        </button>
-                        {CELESTIAL_BODIES.map((body) => {
-                          const emoji = 
-                            body.id === 'sun' ? '☀️' : 
-                            body.id === 'mercury' ? '🌑' : 
-                            body.id === 'venus' ? '🟠' : 
-                            body.id === 'earth' ? '🌍' : 
-                            body.id === 'moon' ? '🌙' : 
-                            body.id === 'mars' ? '🔴' : 
-                            body.id === 'jupiter' ? '🪐' : 
-                            body.id === 'saturn' ? '🪐' : 
-                            body.id === 'uranus' ? '🔵' : 
-                            body.id === 'neptune' ? '🩵' : '🌏';
-
-                          return (
-                            <button
-                              key={body.id}
-                              onClick={() => setTrackedPlanetId(body.id)}
-                              className={`px-2 py-1 text-[10px] rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
-                                trackedPlanetId === body.id
-                                  ? 'bg-gradient-to-r from-indigo-950/60 to-purple-900/40 text-white border-indigo-400 font-bold'
-                                  : 'bg-white/5 border-transparent text-gray-400 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span>{emoji}</span>
-                              <span className="font-medium">{body.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Dynamic Real-time Planetary Telemetry HUD */}
-                    {(() => {
-                      const trackedBody = CELESTIAL_BODIES.find(b => b.id === trackedPlanetId);
-                      if (!trackedBody) return null;
-                      return (
-                        <div className="mt-3 p-2.5 rounded-lg bg-black/60 border border-cyan-500/15 space-y-1.5 animate-fadeIn">
-                          {/* Header */}
-                          <div className="flex justify-between items-center pb-1 border-b border-white/5">
-                            <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase">{trackedBody.name} Telemetry</span>
-                            <span className="text-[8px] font-mono text-zinc-500">ACTIVE REALTIME READOUT</span>
-                          </div>
-
-                          {/* Mass, Gravity, Radius values in clean grids */}
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[8.5px] font-mono text-zinc-300">
-                            <div className="flex justify-between">
-                              <span className="text-zinc-500">Gravity:</span>
-                              <span className="text-cyan-300 font-bold">{trackedBody.realGravity.toFixed(2)} m/s²</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-zinc-500">Relative Mass:</span>
-                              <span className="text-cyan-300 font-bold">
-                                {trackedBody.massRelToEarth >= 1000 
-                                  ? `${(trackedBody.massRelToEarth/1000).toFixed(0)}k` 
-                                  : trackedBody.massRelToEarth.toFixed(3)}x
-                              </span>
-                            </div>
-                            <div className="flex justify-between col-span-2">
-                              <span className="text-zinc-500">Diameter (Equatorial):</span>
-                              <span className="text-indigo-300 font-bold">{trackedBody.diameterKM.toLocaleString()} km</span>
-                            </div>
-                            <div className="flex justify-between col-span-2">
-                              <span className="text-zinc-500">Orbital Distance:</span>
-                              <span className="text-amber-300 font-bold">
-                                {trackedBody.realDistanceAU > 0 ? `${trackedBody.realDistanceAU.toFixed(2)} AU` : '0.0 AU (Solar Barycenter)'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between col-span-2 border-t border-white/5 pt-1 mt-0.5">
-                              <span className="text-zinc-400 uppercase text-[7.5px]">Pull Field Range:</span>
-                              <span className="text-emerald-400 font-medium">Sphere of Influence &lt; {trackedBody.influenceRadius.toFixed(1)} units</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-
                   {/* Core Synthesizer Sound controls */}
                   <div className="space-y-3 border-t border-white/5 pt-3 mt-auto">
                     <div className="flex items-center justify-between">
@@ -705,6 +593,48 @@ export default function App() {
                   {rightTab === 'dashboard' && (
                     <div className="p-4 flex-1 overflow-y-auto space-y-4">
                       
+                      {/* Live Score Leaderboard */}
+                      <div className="bg-gradient-to-b from-stone-900/40 to-black/30 border border-yellow-500/15 p-3.5 rounded-xl space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                          <span className="text-xs font-bold uppercase font-display tracking-widest text-yellow-500 flex items-center gap-1.5">
+                            <Trophy size={14} className="text-yellow-400 animate-pulse" />
+                            Live Leaderboard
+                          </span>
+                          <span className="text-[9px] font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded border border-white/5">Collect Gems (+100)</span>
+                        </div>
+                        
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {[
+                            { id: 'local', name: myName || 'You (Pilot)', score: myScore, color: myColor || '#facc15', isLocal: true },
+                            ...Object.values(players).map(p => ({
+                              id: p.id,
+                              name: p.name || 'Anonymous Astronaut',
+                              score: p.score || 0,
+                              color: p.color,
+                              isLocal: false
+                            }))
+                          ]
+                          .sort((a, b) => b.score - a.score)
+                          .map((p, idx) => (
+                            <div 
+                              key={p.id} 
+                              className={`flex items-center justify-between p-2 rounded-xl border transition-all ${
+                                p.isLocal 
+                                  ? 'bg-yellow-500/10 border-yellow-500/25 text-yellow-100 shadow-[0_0_8px_rgba(250,204,21,0.05)] font-bold' 
+                                  : 'bg-white/5 border border-white/5 text-gray-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 overflow-hidden">
+                                <span className="text-[10px] font-mono font-bold text-gray-500 w-4">#{idx + 1}</span>
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
+                                <span className="text-xs truncate">{p.name}</span>
+                              </div>
+                              <span className="text-xs font-bold font-mono text-yellow-400">{p.score} pts</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       {/* Interactive sandbox performance numbers */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="bg-white/5 border border-white/5 p-3 rounded-xl">
@@ -713,7 +643,7 @@ export default function App() {
                           <div className="w-full bg-black/40 h-1 mt-2.5 rounded-full overflow-hidden">
                             <div className="bg-cyan-500 h-full rounded-full" style={{ width: `${Math.min(100, (totalParticlesCreated / 50000) * 100)}%` }} />
                           </div>
-                          <span className="text-[9px] text-gray-500 font-mono mt-1 block">Goal: 50,000 for badge</span>
+                          <span className="text-[9px] text-gray-500 font-mono mt-1 block">Goal: 50k</span>
                         </div>
                         <div className="bg-white/5 border border-white/5 p-3 rounded-xl">
                           <p className="text-[10px] text-gray-400 font-mono uppercase tracking-wider">Force Fields Sunk</p>
@@ -721,7 +651,7 @@ export default function App() {
                           <div className="w-full bg-black/40 h-1 mt-2.5 rounded-full overflow-hidden">
                             <div className="bg-purple-500 h-full rounded-full" style={{ width: `${Math.min(100, (totalForceFieldsPlaced / 30) * 100)}%` }} />
                           </div>
-                          <span className="text-[9px] text-gray-500 font-mono mt-1 block">Yields 8 XP per placement</span>
+                          <span className="text-[9px] text-gray-500 font-mono mt-1 block">Goal: 30 fields</span>
                         </div>
                       </div>
 
@@ -1000,6 +930,88 @@ export default function App() {
         </div>
 
       </div>
+
+      {/* Profile Onboarding Modal */}
+      <AnimatePresence>
+        {profileModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl pointer-events-auto"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="w-full max-w-sm bg-stone-950 border border-yellow-500/30 p-6 rounded-2xl shadow-[0_0_55px_rgba(250,204,21,0.18)] space-y-5 text-center"
+            >
+              <div className="space-y-1.5">
+                <div className="w-12 h-12 bg-gradient-to-tr from-yellow-500 to-amber-600 rounded-xl flex items-center justify-center mx-auto shadow-[0_0_15px_rgba(250,204,21,0.45)]">
+                  <Gamepad2 className="text-black w-6 h-6" />
+                </div>
+                <h2 className="text-lg font-bold text-white tracking-tight font-display uppercase">Cosmic Call Sign Setup</h2>
+                <p className="text-xs text-gray-400">Initialize your handle name & glowing cursor signature color for the multiplayer generator.</p>
+              </div>
+
+              <div className="space-y-4 text-left">
+                <div className="space-y-1 bg-transparent">
+                  <label className="text-[9px] uppercase font-mono tracking-wider text-gray-400 font-bold">Pilot Handle Name</label>
+                  <input 
+                    type="text" 
+                    maxLength={16}
+                    placeholder="Enter pilot name..."
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    className="w-full bg-black border border-white/10 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-yellow-500 transition-all placeholder-gray-600 font-medium"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-mono tracking-wider text-gray-400 font-bold">Glow Emission Signature</label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {[
+                      '#facc15', // Gold / Amber Yellow
+                      '#FF3366', // Hot pink-red
+                      '#33CCFF', // Aqua cyan
+                      '#33FF99', // Hyper neon green
+                      '#CC33FF', // Cosmic violet
+                      '#FF3333'  // Crimson red
+                    ].map((hex) => (
+                      <button
+                        key={hex}
+                        onClick={() => setTempColor(hex)}
+                        className={`h-8 rounded-lg transition-transform hover:scale-105 cursor-pointer relative ${
+                          tempColor.toLowerCase() === hex.toLowerCase() 
+                            ? 'ring-2 ring-white ring-offset-2 ring-offset-black scale-105 shadow-[0_0_8px_rgba(255,255,255,0.4)]' 
+                            : 'border border-white/5'
+                        }`}
+                        style={{ backgroundColor: hex }}
+                        title={`Select color ${hex}`}
+                      >
+                        {tempColor.toLowerCase() === hex.toLowerCase() && (
+                          <CheckCircle className="w-4 h-4 text-black absolute inset-0 m-auto filter drop-shadow" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  const finalName = tempName.trim() || `Pilot ${Math.floor(100 + Math.random() * 900)}`;
+                  updateProfile(finalName, tempColor);
+                  setProfileModalOpen(false);
+                }}
+                className="w-full bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-400 hover:to-amber-400 text-stone-950 text-xs font-bold py-2.5 px-4 rounded-xl shadow-[0_0_20px_rgba(250,204,21,0.3)] transition-all transform hover:scale-[1.01] active:scale-[0.99] cursor-pointer uppercase font-mono tracking-wider"
+              >
+                Join Space Arena
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

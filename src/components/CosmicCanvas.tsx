@@ -5,14 +5,14 @@
 
 import React, { useRef, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars, OrbitControls } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/useGameStore';
 import { Particles } from './Particles';
 import { ForceFields } from './ForceFields';
 import { OtherPlayers, LocalCursor } from './OtherPlayers';
-import { SolarSystem } from './SolarSystem';
+import { GameGems } from './GameGems';
 
 function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject<THREE.Vector3 | null> }) {
   const sendCursor = useGameStore((state) => state.sendCursor);
@@ -145,39 +145,20 @@ function SceneInteraction({ mousePosRef }: { mousePosRef: React.MutableRefObject
   return null;
 }
 
-function RotatingStars() {
-  const groupRef = useRef<THREE.Group>(null);
-  
-  useFrame((state, delta) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.015;
-      groupRef.current.rotation.x += delta * 0.008;
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      <Stars radius={100} depth={50} count={3500} factor={3} saturation={0.5} fade speed={0.8} />
-    </group>
-  );
-}
-
 export function CosmicCanvas() {
   const mousePosRef = useRef<THREE.Vector3 | null>(null);
   const bloomIntensity = useGameStore((state) => state.bloomIntensity || 1.8);
 
   return (
-    <div className="w-full h-full absolute inset-0 bg-[#020208]">
-      <Canvas camera={{ position: [3, 4, 18], fov: 60 }}>
-        <color attach="background" args={['#02020a']} />
+    <div className="w-full h-full absolute inset-0 bg-black">
+      <Canvas camera={{ position: [0, 0, 16], fov: 60 }}>
+        <color attach="background" args={['#000000']} />
         
-        <ambientLight intensity={0.25} />
+        <ambientLight intensity={0.4} />
         <pointLight position={[10, 10, 10]} intensity={1.5} color="#4338ca" />
         <pointLight position={[-10, -10, -10]} intensity={1.5} color="#06b6d4" />
         
-        <RotatingStars />
-        
-        <SolarSystem />
+        <GameGems mousePosRef={mousePosRef} />
         <Particles mousePosRef={mousePosRef} />
         <ForceFields />
         <OtherPlayers />

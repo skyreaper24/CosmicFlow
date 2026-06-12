@@ -12,6 +12,15 @@ export interface Player {
   id: string;
   color: string;
   position: Vector3 | null;
+  name?: string;
+  score?: number;
+}
+
+export interface Gem {
+  id: string;
+  position: Vector3;
+  color: string;
+  scoreValue: number;
 }
 
 export interface ForceField {
@@ -43,8 +52,11 @@ export interface OracleMessage {
 interface GameState {
   myId: string | null;
   myColor: string | null;
+  myName: string;
+  myScore: number;
   players: Record<string, Player>;
   forceFields: Record<string, ForceField>;
+  gems: Gem[];
   ws: WebSocket | null;
   
   // Custom interactive mechanics
@@ -95,6 +107,8 @@ interface GameState {
   setParticleShape: (shape: string) => void;
   setBloomIntensity: (intensity: number) => void;
   setCustomColor: (color: string) => void;
+  updateProfile: (name: string, color: string) => void;
+  collectGem: (gemId: string) => void;
 
   // Actions
   connect: () => void;
@@ -176,9 +190,11 @@ export const useGameStore = create<GameState>((set, get) => {
   let savedFields = 0;
   let savedAchievements = [...initialAchievements];
   let savedColor: string | null = null;
+  let savedName = '';
 
   try {
     savedColor = localStorage.getItem('cosmic_my_color');
+    savedName = localStorage.getItem('cosmic_my_name') || '';
     const localLevel = localStorage.getItem('cosmic_level');
     if (localLevel) savedLevel = parseInt(localLevel, 10);
     const localXp = localStorage.getItem('cosmic_xp');
@@ -229,8 +245,11 @@ export const useGameStore = create<GameState>((set, get) => {
   return {
     myId: null,
     myColor: savedColor,
+    myName: savedName,
+    myScore: 0,
     players: {},
     forceFields: {},
+    gems: [],
     ws: null,
 
     // Custom modifiers
@@ -273,6 +292,30 @@ export const useGameStore = create<GameState>((set, get) => {
       try {
         localStorage.setItem('cosmic_my_color', color);
       } catch (e) {}
+    },
+
+    updateProfile: (name, color) => {
+      set({ myName: name, myColor: color });
+      try {
+        localStorage.setItem('cosmic_my_name', name);
+        localStorage.setItem('cosmic_my_color', color);
+      } catch (e) {}
+
+      const { ws } = get();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_profile', name, color }));
+      }
+    },
+
+    collectGem: (gemId) => {
+      // Optimistic visual audio feedback
+      synth.playFeedback('prism');
+      triggerHapticFeedback('magnet');
+
+      const { ws } = get();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'collect_gem', gemId }));
+      }
     },
 
     // Persistent State
@@ -415,7 +458,13 @@ export const useGameStore = create<GameState>((set, get) => {
         
         if (data.type === 'init') {
           const finalColor = savedColor || data.color;
-          set({ myId: data.id, myColor: finalColor });
+          const finalName = savedName || data.name || `Player ${Math.floor(100 + Math.random() * 900)}`;
+          set({ myId: data.id, myColor: finalColor, myName: finalName });
+          
+          if (savedName) {
+            ws.send(JSON.stringify({ type: 'update_profile', name: savedName, color: finalColor }));
+          }
+
           const playersMap: Record<string, Player> = {};
           data.players.forEach((p: Player) => {
             if (p.id !== data.id) playersMap[p.id] = p;
@@ -426,23 +475,45 @@ export const useGameStore = create<GameState>((set, get) => {
             forcesMap[f.id] = f;
           });
           
-          set({ players: playersMap, forceFields: forcesMap });
+          set({ players: playersMap, forceFields: forcesMap, gems: data.gems || [] });
         } else if (data.type === 'player_joined') {
           set((state) => ({
             players: { ...state.players, [data.player.id]: data.player }
           }));
+        } else if (data.type === 'player_updated') {
+          set((state) => {
+            if (data.player.id === state.myId) {
+              return { myColor: data.player.color, myName: data.player.name };
+            }
+            return {
+              players: { ...state.players, [data.player.id]: data.player }
+            };
+          });
         } else if (data.type === 'player_left') {
           set((state) => {
             const newPlayers = { ...state.players };
             delete newPlayers[data.id];
             return { players: newPlayers };
           });
+        } else if (data.type === 'gem_collected') {
+          synth.playFeedback('prism');
+          
+          const playersMap: Record<string, Player> = {};
+          data.players.forEach((p: Player) => {
+            if (p.id !== get().myId) playersMap[p.id] = p;
+          });
+
+          if (data.collectorId === get().myId) {
+            get().addLocalXp(50); // collecting a gem rewards 50 XP
+          }
+
+          set({ gems: data.gems, players: playersMap });
         } else if (data.type === 'sync') {
           set((state) => {
             const newPlayers = { ...state.players };
             data.players.forEach((p: Player) => {
               if (p.id !== state.myId) {
-                newPlayers[p.id] = { ...newPlayers[p.id], position: p.position };
+                newPlayers[p.id] = p;
               }
             });
             
@@ -454,7 +525,7 @@ export const useGameStore = create<GameState>((set, get) => {
               });
             }
             
-            return { players: newPlayers, forceFields: newForces };
+            return { players: newPlayers, forceFields: newForces, gems: data.gems || state.gems };
           });
         } else if (data.type === 'force_added') {
           set((state) => ({

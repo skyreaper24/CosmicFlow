@@ -565,32 +565,16 @@ const PlanetMesh = React.memo(({ body }: PlanetRefProps) => {
 });
 
 export function SolarSystem() {
-  const trackedPlanetId = useGameStore((state) => state.trackedPlanetId);
   const tempTrackPos = useMemo(() => new THREE.Vector3(), []);
   
   useFrame((state) => {
-    // Elegant frame focus track matching R3F standard loops
-    if (trackedPlanetId) {
-      const activeBody = CELESTIAL_BODIES.find(b => b.id === trackedPlanetId);
-      if (activeBody) {
-        const time = state.clock.getElapsedTime();
-        getCelestialPosition(activeBody, time, tempTrackPos);
-        
-        if (state.controls) {
-          const ctrl = state.controls as any;
-          ctrl.target.lerp(tempTrackPos, 0.07);
-          ctrl.update();
-        }
-      }
-    } else {
-      // If tracking defaults to Sun or none, lerp target slowly back to center (0, 0, 0)
-      if (state.controls) {
-        const ctrl = state.controls as any;
-        tempTrackPos.set(0, 0, 0);
-        if (ctrl.target.distanceTo(tempTrackPos) > 0.02) {
-          ctrl.target.lerp(tempTrackPos, 0.05);
-          ctrl.update();
-        }
+    // Lerp camera target slowly back to center (0, 0, 0) for stable view
+    if (state.controls) {
+      const ctrl = state.controls as any;
+      tempTrackPos.set(0, 0, 0);
+      if (ctrl.target.distanceTo(tempTrackPos) > 0.02) {
+        ctrl.target.lerp(tempTrackPos, 0.05);
+        ctrl.update();
       }
     }
   });
@@ -599,14 +583,6 @@ export function SolarSystem() {
     <group>
       {/* 1. Milky Way spiral galaxy background */}
       <MilkyWay />
-
-      {/* 2. Visual Orbit lines guiding viewers */}
-      <OrbitPaths />
-
-      {/* 3. Physical body meshes dynamically computed in space */}
-      {CELESTIAL_BODIES.map((body) => (
-        <PlanetMesh key={`body-${body.id}`} body={body} />
-      ))}
     </group>
   );
 }

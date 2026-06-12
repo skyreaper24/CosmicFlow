@@ -89,24 +89,13 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const particles = useMemo(() => {
     const arr: Particle[] = [];
     for (let i = 0; i < MAX_PARTICLES; i++) {
-      // Intentionally spread initialized active particles through full 3D viewport coordinates
-      const angle = Math.random() * Math.PI * 2;
-      const r = Math.random() * 16.0;
-      const x = Math.cos(angle) * r;
-      const y = Math.sin(angle) * r;
-      const z = (Math.random() - 0.5) * 8.0;
-
       const p: Particle = {
-        active: true,
-        position: new THREE.Vector3(x, y, z),
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 1.5,
-          (Math.random() - 0.5) * 1.5,
-          (Math.random() - 0.5) * 0.8
-        ),
+        active: false,
+        position: new THREE.Vector3(9999, 9999, 9999),
+        velocity: new THREE.Vector3(),
         color: new THREE.Color(),
         baseColor: new THREE.Color(),
-        life: PARTICLE_LIFETIME * (0.8 + Math.random() * 0.4),
+        life: 0,
         size: 0.05 + Math.random() * 0.08,
       };
 
@@ -129,6 +118,8 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const quaternion = useMemo(() => new THREE.Quaternion(), []);
   const spawnIndex = useRef(0);
+  const lastSpawnedPosRef = useRef<THREE.Vector3>(new THREE.Vector3());
+  const otherPlayersLastPosRef = useRef<Record<string, THREE.Vector3>>({});
 
   // High performance spatial hashing arrays (reusable) for physical collisions
   const gridHead = useMemo(() => new Int32Array(2000), []);
@@ -227,21 +218,36 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
     // Spawn client particles (Cursor trail)
     if (mousePosRef.current) {
       const activeColor = myColor || getPresetColor(particlePreset, 0);
-      const spawnCount = Math.floor(65 * flowSpeed); // Density scaled by flow speed
-      for (let i = 0; i < spawnCount; i++) {
-        spawnParticle(mousePosRef.current, activeColor);
+      const dist = tempV2.copy(mousePosRef.current).distanceTo(lastSpawnedPosRef.current);
+      
+      // Proportional to movement speed, with a slight constant trickle when hovered
+      const spawnCount = Math.min(100, Math.floor(dist * 220 * flowSpeed + 2)); 
+      if (spawnCount > 0) {
+        for (let i = 0; i < spawnCount; i++) {
+          spawnParticle(mousePosRef.current, activeColor);
+        }
+        particlesToReportRef.current += spawnCount;
       }
-      particlesToReportRef.current += spawnCount;
+      lastSpawnedPosRef.current.copy(mousePosRef.current);
     }
 
     // Spawn other players' particles
     Object.values(players).forEach(player => {
       if (player.position && player.color) {
-        tempV1.set(player.position.x, player.position.y, player.position.z);
-        const spawnCount = Math.floor(40 * flowSpeed);
-        for (let i = 0; i < spawnCount; i++) {
-          spawnParticle(tempV1, player.color);
+        if (!otherPlayersLastPosRef.current[player.id]) {
+          otherPlayersLastPosRef.current[player.id] = new THREE.Vector3(player.position.x, player.position.y, player.position.z);
         }
+        const lastPos = otherPlayersLastPosRef.current[player.id];
+        tempV1.set(player.position.x, player.position.y, player.position.z);
+        const dist = tempV1.distanceTo(lastPos);
+        
+        const spawnCount = Math.min(80, Math.floor(dist * 180 * flowSpeed + 1));
+        if (spawnCount > 0) {
+          for (let i = 0; i < spawnCount; i++) {
+            spawnParticle(tempV1, player.color);
+          }
+        }
+        lastPos.copy(tempV1);
       }
     });
 
@@ -272,15 +278,9 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
         continue;
       }
 
-      // We remove particle death/fading. All particles are permanently active, enabling an infinite, persistent cosmic fluid flow!
-
-      // Sun incineration death check: Sun is at (0, 0, 0) with a physical radius of 1.8
-      const sunRadius = 1.8;
-      const burnOffset = 1.05; // incinerates slightly before hitting the core surface
-      const sunRadiusSq = (sunRadius * burnOffset) * (sunRadius * burnOffset);
-      const distToSunSq = p.position.x * p.position.x + p.position.y * p.position.y + p.position.z * p.position.z;
-      
-      if (distToSunSq < sunRadiusSq) {
+      // Decrement particle remaining lifetime (Graceful fading decay)
+      p.life -= dt;
+      if (p.life <= 0) {
         p.active = false;
         dummy.position.set(9999, 9999, 9999);
         dummy.scale.set(0, 0, 0);
@@ -519,9 +519,9 @@ export function Particles({ mousePosRef }: { mousePosRef: React.MutableRefObject
       // Update actual Matrix Coordinates
       dummy.position.copy(p.position);
       
-      // Let particles retain their brilliant shapes/colors completely without stretching into pencil-like lines
+      // Let particles retain their brilliant shapes/colors completely with life decay scaling
       const speed = p.velocity.length();
-      const finalLifeScale = 1.0;
+      const finalLifeScale = Math.max(0.01, Math.min(1.0, p.life / PARTICLE_LIFETIME));
       
       let widthScale = p.size * finalLifeScale;
       let heightScale = widthScale;

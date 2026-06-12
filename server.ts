@@ -41,6 +41,8 @@ interface Player {
   id: string;
   color: string;
   position: Vector3 | null;
+  name?: string;
+  score?: number;
   lastUpdate: number;
 }
 
@@ -53,16 +55,47 @@ interface ForceField {
   color: string;
 }
 
+interface Gem {
+  id: string;
+  position: Vector3;
+  color: string;
+  scoreValue: number;
+}
+
 // State
 const players = new Map<string, Player>();
 const forceFields = new Map<string, ForceField>();
 const clients = new Map<string, WebSocket>();
+const gems = new Map<string, Gem>();
 
 // Colors for players
 const COLORS = [
-  '#FF3366', '#33CCFF', '#FF9933', '#33FF99', 
-  '#CC33FF', '#FFFF33', '#FF3333', '#3333FF'
+  '#facc15', // Gold / Amber Yellow (specifically requested)
+  '#FF3366', // Electric Red-Pink
+  '#33CCFF', // Cosmic Turquoise cyan
+  '#33FF99', // Hyper Neon Green
+  '#CC33FF', // Neon Purple
+  '#FF3333', // Neon Red
+  '#3333FF'  // Royal Blue
 ];
+
+// Create 8 initial sparkling gold stars/gems
+function spawnGems() {
+  gems.clear();
+  for (let i = 0; i < 8; i++) {
+    const gemId = uuidv4();
+    gems.set(gemId, {
+      id: gemId,
+      position: {
+        x: (Math.random() - 0.5) * 18,
+        y: (Math.random() - 0.5) * 11,
+        z: (Math.random() - 0.5) * 8
+      },
+      color: '#facc15', // Glowing Amber Gold
+      scoreValue: 100
+    });
+  }
+}
 
 function broadcast(data: any, excludeId?: string) {
   const message = JSON.stringify(data);
@@ -77,16 +110,22 @@ async function startServer() {
   const app = express();
   const server = http.createServer(app);
   
+  // Spawn initial gems
+  spawnGems();
+
   // WebSocket Server
   const wss = new WebSocketServer({ server });
 
   wss.on('connection', (ws) => {
     const id = uuidv4();
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+    const defaultName = `Player ${Math.floor(100 + Math.random() * 900)}`;
     
     const player: Player = {
       id,
       color,
+      name: defaultName,
+      score: 0,
       position: null,
       lastUpdate: Date.now()
     };
@@ -94,13 +133,15 @@ async function startServer() {
     players.set(id, player);
     clients.set(id, ws);
 
-    // Send initial state to the new client
+    // Send initial state to the new client, including gems
     ws.send(JSON.stringify({
       type: 'init',
       id,
       color,
+      name: defaultName,
       players: Array.from(players.values()),
-      forceFields: Array.from(forceFields.values())
+      forceFields: Array.from(forceFields.values()),
+      gems: Array.from(gems.values())
     }));
 
     // Broadcast new player to others
@@ -118,6 +159,45 @@ async function startServer() {
           if (p) {
             p.position = data.position;
             p.lastUpdate = Date.now();
+          }
+        } else if (data.type === 'update_profile') {
+          const p = players.get(id);
+          if (p) {
+            if (data.name) p.name = data.name;
+            if (data.color) p.color = data.color;
+            // Broadcast player state immediately to update leaderboards & labels
+            broadcast({
+              type: 'player_updated',
+              player: p
+            });
+          }
+        } else if (data.type === 'collect_gem') {
+          const gemId = data.gemId;
+          if (gems.has(gemId)) {
+            const p = players.get(id);
+            if (p) {
+              p.score = (p.score || 0) + 100;
+            }
+            
+            // Move collected gem to a new randomized coordinate
+            const oldGem = gems.get(gemId)!;
+            gems.set(gemId, {
+              ...oldGem,
+              position: {
+                x: (Math.random() - 0.5) * 18,
+                y: (Math.random() - 0.5) * 11,
+                z: (Math.random() - 0.5) * 8
+              }
+            });
+            
+            // Broadcast collection to all clients with the new state
+            broadcast({
+              type: 'gem_collected',
+              collectorId: id,
+              gemId,
+              players: Array.from(players.values()),
+              gems: Array.from(gems.values())
+            });
           }
         } else if (data.type === 'add_force') {
           const forceId = uuidv4();
@@ -175,7 +255,8 @@ async function startServer() {
 
     const updateData = {
       type: 'sync',
-      players: Array.from(players.values()).filter(p => p.position !== null),
+      players: Array.from(players.values()),
+      gems: Array.from(gems.values()),
       ...(forcesChanged ? { forceFields: Array.from(forceFields.values()) } : {})
     };
 
